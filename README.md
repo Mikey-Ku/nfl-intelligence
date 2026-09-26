@@ -41,6 +41,23 @@ start stacking up, run with `--mirror` to get a side window instead.
 ```bash
 uv run nfl run data/clips/*.mp4 --save-video          # one CSV per clip in outputs/
 uv run nfl replay outputs/play01_sideline.csv          # top-down replay video
+uv run nfl eval outputs/play01_sideline.csv data/truth/play01.csv   # yards error, recall, ID switches
+```
+
+Useful flags on `overlay` and `run`: `--tracker bytetrack` (faster, fixed camera; the default
+BoT-SORT compensates for camera pans), `--tiles 2` (2×2 overlapping slices for tiny far-sideline
+players), `--weights yolo11s.pt` or your fine-tuned weights.
+
+## Fine-tuning the detector
+
+The pretrained COCO `person` class finds players but the detector is the bottleneck on film
+(see [docs/PRIOR_ART.md](docs/PRIOR_ART.md)). A few hundred corrected frames go a long way:
+
+```bash
+uv run nfl prelabel data/clips/*.mp4 --every 30       # keyframes + detector boxes as YOLO labels
+# correct the boxes in X-AnyLabeling (reads/writes YOLO txt), classes: player, referee
+uv run nfl train --epochs 40                          # two-stage fine-tune at 1280 on the M5
+uv run nfl overlay --window "Chrome" --weights runs/detect/nfl/weights/best.pt
 ```
 
 ## Field calibration

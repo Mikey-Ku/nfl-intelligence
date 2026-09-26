@@ -7,6 +7,8 @@
   nfl replay outputs/clip.csv        render a top-down replay video from a CSV
   nfl eval outputs/clip.csv gt.csv   position error, recall, ID switches vs hand labels
   nfl calibrate --video clip.mp4     click landmarks to build a homography
+  nfl prelabel clips/*.mp4           keyframes + detector boxes as YOLO labels to correct
+  nfl train                          fine-tune YOLO on the corrected labels
 """
 
 from __future__ import annotations
@@ -226,6 +228,29 @@ def cmd_replay(args) -> None:
     print(f"wrote {out}")
 
 
+def cmd_prelabel(args) -> None:
+    from .detect import PlayerDetector
+    from .train import prelabel, write_dataset_yaml
+
+    det = PlayerDetector(args.weights, device=args.device, conf=args.conf, imgsz=args.imgsz, tiles=args.tiles)
+    n = prelabel(args.videos, args.out_dir, det, every=args.every, max_per_clip=args.max_per_clip)
+    yaml_path = write_dataset_yaml(Path(args.out_dir))
+    print(f"wrote {n} pre-labeled frames under {args.out_dir}; dataset file {yaml_path}")
+    print("next: correct the boxes (X-AnyLabeling reads YOLO txt), then `nfl train`")
+
+
+def cmd_train(args) -> None:
+    from .train import fine_tune, write_dataset_yaml
+
+    root = Path(args.data_dir)
+    yaml_path = root / "data.yaml"
+    if not yaml_path.exists():
+        yaml_path = write_dataset_yaml(root)
+    best = fine_tune(yaml_path, weights=args.weights, epochs=args.epochs, imgsz=args.imgsz,
+                     batch=args.batch, freeze_epochs=args.freeze_epochs, device=args.device, name=args.name)
+    print(f"best weights: {best}\nuse them with: nfl overlay --weights {best} ...")
+
+
 def cmd_eval(args) -> None:
     from .evaluate import evaluate_files
 
@@ -290,6 +315,25 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--fps", type=float, default=30.0)
     rp.add_argument("--scale", type=float, default=8.0, help="pixels per yard")
     rp.set_defaults(func=cmd_replay)
+
+    pl = sub.add_parser("prelabel", help="sample keyframes from clips with the detector's boxes as YOLO labels to correct")
+    pl.add_argument("videos", nargs="+")
+    _add_model_args(pl)
+    pl.add_argument("--out-dir", default="data/labels")
+    pl.add_argument("--every", type=int, default=30, help="keep every Nth frame")
+    pl.add_argument("--max-per-clip", type=int, default=None)
+    pl.set_defaults(func=cmd_prelabel)
+
+    tr = sub.add_parser("train", help="fine-tune YOLO on the corrected labels")
+    tr.add_argument("--data-dir", default="data/labels")
+    tr.add_argument("--weights", default="yolo11s.pt")
+    tr.add_argument("--epochs", type=int, default=40)
+    tr.add_argument("--freeze-epochs", type=int, default=10, help="stage-1 epochs with the backbone frozen (0 to skip)")
+    tr.add_argument("--imgsz", type=int, default=1280)
+    tr.add_argument("--batch", type=int, default=4)
+    tr.add_argument("--device", default=None)
+    tr.add_argument("--name", default="nfl")
+    tr.set_defaults(func=cmd_train)
 
     ev = sub.add_parser("eval", help="score a tracking CSV against a ground-truth CSV in the same schema")
     ev.add_argument("pred")

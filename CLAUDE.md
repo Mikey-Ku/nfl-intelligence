@@ -18,7 +18,7 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
 
 - `src/nfl_intel/capture.py` — screen-region / window capture (mss + Quartz) and video files
 - `src/nfl_intel/detect.py` — YOLO player detector (pretrained, MPS on Apple silicon)
-- `src/nfl_intel/track.py` — ByteTrack wrapper giving stable IDs
+- `src/nfl_intel/track.py` — BoT-SORT (camera-motion compensation) / ByteTrack giving stable IDs
 - `src/nfl_intel/teams.py` — jersey-color clustering into two teams, smoothed per track
 - `src/nfl_intel/field.py` — field model in yards, homography, landmark names, field drawing
 - `src/nfl_intel/pipeline.py` — `PlayTracker`: one frame in, `FrameResult` out
@@ -26,4 +26,6 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
 - `src/nfl_intel/replay.py` — tracking CSV → top-down replay video
 - `src/nfl_intel/calibrate.py` — click landmarks on a frame to build a homography
 - `src/nfl_intel/evaluate.py` — score a tracking CSV against hand-labeled truth (yards error, recall, ID switches, MOTA)
-- `src/nfl_intel/cli.py` — `nfl` command: check, windows, overlay, run, replay, eval, calibrate
+- `src/nfl_intel/train.py` — keyframe pre-labeling, dataset YAML, two-stage YOLO fine-tune
+- `src/nfl_intel/cli.py` — `nfl` command: check, windows, overlay, run, replay, eval, calibrate, prelabel, train
+- `docs/PRIOR_ART.md` — what exists elsewhere, how it runs/tests/views, ranked improvements
