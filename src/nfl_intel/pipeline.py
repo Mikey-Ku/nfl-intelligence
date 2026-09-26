@@ -27,8 +27,9 @@ class PlayTracker:
         min_box_height_frac: float = 0.03,
         team_warmup_frames: int = 15,
         tracker: str = "botsort",
+        tiles: int = 1,
     ):
-        self.detector = detector or PlayerDetector(weights, device=device, conf=conf, imgsz=imgsz)
+        self.detector = detector or PlayerDetector(weights, device=device, conf=conf, imgsz=imgsz, tiles=tiles)
         self.tracker = PlayerTracker(fps=fps, kind=tracker)
         self.teams = TeamAssigner(warmup_frames=team_warmup_frames)
         self.calibration = calibration

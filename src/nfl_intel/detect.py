@@ -30,6 +30,7 @@ class PlayerDetector:
         device: str | None = None,
         conf: float = 0.3,
         imgsz: int = 1280,
+        tiles: int = 1,
     ):
         from ultralytics import YOLO
 
@@ -37,11 +38,14 @@ class PlayerDetector:
         self.device = device or pick_device()
         self.conf = conf
         self.imgsz = imgsz
+        self.tiles = max(1, tiles)
         names = self.model.names
         # COCO weights: keep only `person`. Custom weights: keep every class.
         self.classes = [i for i, n in names.items() if n == "person"] or None
+        self._slicer: sv.InferenceSlicer | None = None
+        self._slicer_size: tuple[int, int] | None = None
 
-    def __call__(self, frame: np.ndarray) -> sv.Detections:
+    def _predict(self, frame: np.ndarray) -> sv.Detections:
         result = self.model.predict(
             frame,
             conf=self.conf,
@@ -51,3 +55,24 @@ class PlayerDetector:
             verbose=False,
         )[0]
         return sv.Detections.from_ultralytics(result)
+
+    def __call__(self, frame: np.ndarray) -> sv.Detections:
+        """Whole-frame inference, or `tiles` x `tiles` overlapping slices merged with NMS.
+
+        Tiling costs ~tiles² inference passes but finds the small far-sideline players
+        that a single 1280-px pass misses on a 4K grab.
+        """
+        if self.tiles == 1:
+            return self._predict(frame)
+        h, w = frame.shape[:2]
+        size = (w // self.tiles, h // self.tiles)
+        if self._slicer is None or self._slicer_size != size:
+            self._slicer = sv.InferenceSlicer(
+                callback=self._predict,
+                slice_wh=size,
+                overlap_wh=(size[0] // 5, size[1] // 5),
+                iou_threshold=0.5,
+                thread_workers=1,
+            )
+            self._slicer_size = size
+        return self._slicer(frame)

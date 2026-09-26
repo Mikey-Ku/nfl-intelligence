@@ -47,6 +47,7 @@ def _add_model_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--device", default=None, help="mps, cuda or cpu (default: auto)")
     p.add_argument("--conf", type=float, default=0.3)
     p.add_argument("--imgsz", type=int, default=1280)
+    p.add_argument("--tiles", type=int, default=1, help="split the frame into N x N overlapping tiles to catch small far-sideline players (N² cost)")
     p.add_argument("--tracker", choices=TRACKERS, default="botsort",
                    help="botsort compensates for camera pans (default); bytetrack is faster for a fixed camera")
     p.add_argument("--calib", help="calibration JSON from `nfl calibrate`")
@@ -75,7 +76,7 @@ def _build_tracker(args, fps: float):
 
     calib = FieldCalibration.load(args.calib) if args.calib else None
     return PlayTracker(fps=fps, calibration=calib, weights=args.weights, device=args.device,
-                       conf=args.conf, imgsz=args.imgsz, tracker=args.tracker)
+                       conf=args.conf, imgsz=args.imgsz, tracker=args.tracker, tiles=args.tiles)
 
 
 # ------------------------------------------------------------------ commands
