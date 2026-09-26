@@ -54,7 +54,8 @@ Just me. A personal learning project; nothing is redistributed.
 ## Open questions
 - Clip specs: resolution, frame rate, format, and how many clips per week.
 - How far out of sync the two angles get, and whether aligning them on the snap is enough.
-- Labeling budget: how many plays and keyframes to hand-label, and what the labeling tool looks like.
+- Labeling budget: how many plays and keyframes to hand-label (research says 300–600 frames from 20+ plays; tool: X-AnyLabeling, see `docs/PRIOR_ART.md`).
+- Whether to accept the Kaggle NFL Helmet Assignment rules to use its 2021 sideline/endzone clips + NGS positions as a yards answer key alongside our own hand labels.
 - Whether the end-zone angle's depth compression makes downfield positions too inaccurate.
 - Formation vocabulary: which labels to use (shotgun/pistol/under center, personnel groupings, trips/bunch/empty).
 - Whether to allow a paid cloud GPU for fine-tuning, or keep everything local.
