@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Footage and anything derived from it never leaves this machine
+data/
+outputs/
+*.mp4
+*.mov
+*.mkv
+*.m4v
+*.ts
+*.avi
+*.webm
+
+# Model weights (downloaded on first run)
+*.pt
+*.onnx
+*.mlpackage
+runs/
+
+# Pipeline-local state
+manifest.json
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
