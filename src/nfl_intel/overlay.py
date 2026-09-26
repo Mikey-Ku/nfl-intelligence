@@ -153,13 +153,24 @@ class TrackingWorker(QThread):
         self.finished_all.emit()
 
 
-def run_overlay(region: Region, tracker, source: Iterable, sink=None, show_minimap: bool = True) -> int:
+def run_overlay(region: Region, tracker, source: Iterable, sink=None, show_minimap: bool = True,
+                seconds: float | None = None) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     window = OverlayWindow(region, show_minimap=show_minimap)
     worker = TrackingWorker(tracker, source, sink)
     worker.result_ready.connect(window.set_result)
     worker.finished_all.connect(app.quit)
     app.aboutToQuit.connect(worker.stop)
+    if seconds:
+        QTimer.singleShot(int(seconds * 1000), app.quit)
+    # Ctrl-C / kill -TERM end the session cleanly so the CSV and recording still get written.
+    import signal
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, lambda *_: app.quit())
+    keepalive = QTimer()               # lets Python see the signal while Qt's loop is blocking
+    keepalive.timeout.connect(lambda: None)
+    keepalive.start(200)
     window.show()
     window.follow(source)
     worker.start()

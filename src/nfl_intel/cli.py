@@ -157,18 +157,21 @@ def cmd_overlay(args) -> None:
             from .draw import annotate
 
             print("mirror mode: press q in the window to stop")
+            t_start = time.monotonic()
             for idx, t, frame in source:
                 res = tracker.process(frame, idx, t)
                 sink(res, frame)
                 cv2.imshow("nfl overlay (mirror)", annotate(frame, res))
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
+                if args.seconds and time.monotonic() - t_start > args.seconds:
+                    break
             cv2.destroyAllWindows()
         else:
             from .overlay import run_overlay
 
-            print("overlay running: Ctrl-C in this terminal to stop")
-            run_overlay(region, tracker, source, sink, show_minimap=not args.no_minimap)
+            print("overlay running: Ctrl-C in this terminal to stop" + (f" (auto-stop after {args.seconds:g}s)" if args.seconds else ""))
+            run_overlay(region, tracker, source, sink, show_minimap=not args.no_minimap, seconds=args.seconds)
     except KeyboardInterrupt:
         pass
     finally:
@@ -299,6 +302,7 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--fps-cap", type=float, default=None, help="limit capture rate (default: as fast as inference allows)")
     o.add_argument("--out", help="write tracking CSV when the session ends")
     o.add_argument("--record", help="write the annotated capture to this mp4")
+    o.add_argument("--seconds", type=float, default=None, help="stop automatically after this many seconds")
     o.set_defaults(func=cmd_overlay)
 
     r = sub.add_parser("run", help="track clip files")
