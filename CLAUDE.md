@@ -25,4 +25,5 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
 - `src/nfl_intel/overlay.py` — transparent always-on-top overlay window (PySide6)
 - `src/nfl_intel/replay.py` — tracking CSV → top-down replay video
 - `src/nfl_intel/calibrate.py` — click landmarks on a frame to build a homography
-- `src/nfl_intel/cli.py` — `nfl` command: check, windows, overlay, run, replay, calibrate
+- `src/nfl_intel/evaluate.py` — score a tracking CSV against hand-labeled truth (yards error, recall, ID switches, MOTA)
+- `src/nfl_intel/cli.py` — `nfl` command: check, windows, overlay, run, replay, eval, calibrate

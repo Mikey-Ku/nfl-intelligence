@@ -5,6 +5,7 @@
   nfl overlay --window "NFL Pro"     live overlay on top of the player
   nfl run clip.mp4 [...]             track clip files to CSV (+ optional annotated video)
   nfl replay outputs/clip.csv        render a top-down replay video from a CSV
+  nfl eval outputs/clip.csv gt.csv   position error, recall, ID switches vs hand labels
   nfl calibrate --video clip.mp4     click landmarks to build a homography
 """
 
@@ -224,6 +225,12 @@ def cmd_replay(args) -> None:
     print(f"wrote {out}")
 
 
+def cmd_eval(args) -> None:
+    from .evaluate import evaluate_files
+
+    print(evaluate_files(args.pred, args.truth, args.threshold))
+
+
 def cmd_calibrate(args) -> None:
     from .calibrate import calibrate_interactive
 
@@ -282,6 +289,12 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--fps", type=float, default=30.0)
     rp.add_argument("--scale", type=float, default=8.0, help="pixels per yard")
     rp.set_defaults(func=cmd_replay)
+
+    ev = sub.add_parser("eval", help="score a tracking CSV against a ground-truth CSV in the same schema")
+    ev.add_argument("pred")
+    ev.add_argument("truth")
+    ev.add_argument("--threshold", type=float, default=None, help="match distance (default 3 yd calibrated, 60 px otherwise)")
+    ev.set_defaults(func=cmd_eval)
 
     cal = sub.add_parser("calibrate", help="click landmarks on a frame to build a homography")
     src = cal.add_mutually_exclusive_group()
