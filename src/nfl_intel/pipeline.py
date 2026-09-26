@@ -26,9 +26,10 @@ class PlayTracker:
         imgsz: int = 1280,
         min_box_height_frac: float = 0.03,
         team_warmup_frames: int = 15,
+        tracker: str = "botsort",
     ):
         self.detector = detector or PlayerDetector(weights, device=device, conf=conf, imgsz=imgsz)
-        self.tracker = PlayerTracker(fps=fps)
+        self.tracker = PlayerTracker(fps=fps, kind=tracker)
         self.teams = TeamAssigner(warmup_frames=team_warmup_frames)
         self.calibration = calibration
         self.min_box_height_frac = min_box_height_frac
@@ -47,7 +48,7 @@ class PlayTracker:
     def process(self, frame: np.ndarray, frame_idx: int, t: float) -> FrameResult:
         h, w = frame.shape[:2]
         dets = self._filter(self.detector(frame), h)
-        dets = self.tracker.update(dets)
+        dets = self.tracker.update(dets, frame)
         players: list[TrackedPlayer] = []
         if len(dets) and dets.tracker_id is not None:
             teams = self.teams.assign(frame, dets.xyxy, dets.tracker_id)
