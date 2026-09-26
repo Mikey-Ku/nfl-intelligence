@@ -18,7 +18,16 @@ from pathlib import Path
 import cv2
 
 from . import __version__
-from .capture import Region, ScreenSource, VideoSource, find_window, list_windows, looks_blank
+from .capture import (
+    Region,
+    ScreenSource,
+    VideoSource,
+    WindowSource,
+    find_window,
+    list_windows,
+    looks_blank,
+    window_by_id,
+)
 from .detect import DEFAULT_WEIGHTS
 from .field import FieldCalibration
 from .schema import write_csv
@@ -26,8 +35,9 @@ from .schema import write_csv
 
 def _add_source_args(p: argparse.ArgumentParser) -> None:
     g = p.add_mutually_exclusive_group()
-    g.add_argument("--window", help="capture the largest on-screen window whose app or title contains this text")
-    g.add_argument("--region", help="capture 'left,top,width,height' in screen points")
+    g.add_argument("--window", help="capture the window whose app or title contains this text (by window ID: works even when covered)")
+    g.add_argument("--window-id", type=int, help="capture this window ID from `nfl windows`")
+    g.add_argument("--region", help="capture 'left,top,width,height' of the screen in points")
 
 
 def _add_model_args(p: argparse.ArgumentParser) -> None:
@@ -38,16 +48,22 @@ def _add_model_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--calib", help="calibration JSON from `nfl calibrate`")
 
 
-def _resolve_region(args) -> Region:
+def _resolve_source(args, fps_cap: float | None = None):
+    """--region -> ScreenSource; --window/--window-id -> WindowSource (captures by window ID)."""
     if args.region:
-        return Region.parse(args.region)
-    if args.window:
+        return ScreenSource(Region.parse(args.region), fps_cap=fps_cap)
+    if args.window_id:
+        w = window_by_id(args.window_id)
+        if w is None:
+            sys.exit(f"no window with id {args.window_id}; try `nfl windows`")
+    elif args.window:
         w = find_window(args.window)
         if w is None:
-            sys.exit(f"no on-screen window matches {args.window!r}; try `nfl windows`")
-        print(f"capturing {w}")
-        return w.region
-    sys.exit("give --window TEXT or --region left,top,width,height")
+            sys.exit(f"no window matches {args.window!r}; try `nfl windows`")
+    else:
+        sys.exit("give --window TEXT, --window-id N or --region left,top,width,height")
+    print(f"capturing {w}")
+    return WindowSource(w, fps_cap=fps_cap)
 
 
 def _build_tracker(args, fps: float):
@@ -94,7 +110,8 @@ def cmd_check(args) -> None:
         print("  the grab is blank: give this terminal Screen Recording permission in System Settings > Privacy & Security")
     wins = list_windows()
     titled = sum(1 for w in wins if w.title)
-    print(f"windows: {len(wins)} on screen, {titled} with titles" + ("" if titled else "  (titles need Screen Recording permission)"))
+    on = sum(1 for w in wins if w.on_screen)
+    print(f"windows: {len(wins)} ({on} on screen), {titled} with titles" + ("" if titled else "  (titles need Screen Recording permission)"))
 
 
 def cmd_windows(args) -> None:
@@ -109,8 +126,8 @@ def cmd_windows(args) -> None:
 
 
 def cmd_overlay(args) -> None:
-    region = _resolve_region(args)
-    source = ScreenSource(region, fps_cap=args.fps_cap)
+    source = _resolve_source(args, fps_cap=args.fps_cap)
+    region = source.region
     tracker = _build_tracker(args, fps=args.fps_cap or 30.0)
 
     results = []
@@ -216,10 +233,9 @@ def cmd_calibrate(args) -> None:
         frame = cv2.imread(args.image)
         meta = {"source": args.image}
     else:
-        region = _resolve_region(args)
-        src = ScreenSource(region)
+        src = _resolve_source(args)
         frame = src.grab()
-        meta = {"region": region.__dict__, "scale": src.scale}
+        meta = {"region": src.region.__dict__, "scale": src.scale}
     calibrate_interactive(frame, args.out, meta)
 
 

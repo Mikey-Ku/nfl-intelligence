@@ -12,7 +12,7 @@ import time
 from collections.abc import Iterable
 
 import numpy as np
-from PySide6.QtCore import Qt, QThread, Signal, Slot
+from PySide6.QtCore import Qt, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -75,6 +75,18 @@ class OverlayWindow(QWidget):
     def showEvent(self, event) -> None:
         super().showEvent(event)
         exclude_from_capture(self)
+
+    def follow(self, source, interval_ms: int = 500) -> None:
+        """Keep the overlay on top of a WindowSource's window as it moves or resizes."""
+        def tick():
+            region = getattr(source, "region", None)
+            if region is not None and region != self.region:
+                self.region = region
+                self.setGeometry(region.left, region.top, region.width, region.height)
+
+        self._follow_timer = QTimer(self)
+        self._follow_timer.timeout.connect(tick)
+        self._follow_timer.start(interval_ms)
 
     @Slot(object, float)
     def set_result(self, result: FrameResult, scale: float) -> None:
@@ -149,6 +161,7 @@ def run_overlay(region: Region, tracker, source: Iterable, sink=None, show_minim
     worker.finished_all.connect(app.quit)
     app.aboutToQuit.connect(worker.stop)
     window.show()
+    window.follow(source)
     worker.start()
     code = app.exec()
     worker.stop()

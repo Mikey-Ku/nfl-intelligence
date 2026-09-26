@@ -39,24 +39,26 @@ class WindowInfo:
     owner: str
     title: str
     region: Region
+    on_screen: bool = True
 
     def __str__(self) -> str:
         r = self.region
-        return f"[{self.id}] {self.owner} — {self.title or '(untitled)'}  {r.width}x{r.height} at ({r.left},{r.top})"
+        where = "" if self.on_screen else "  (off screen)"
+        return f"[{self.id}] {self.owner} — {self.title or '(untitled)'}  {r.width}x{r.height} at ({r.left},{r.top}){where}"
 
 
-def list_windows(min_size: int = 200) -> list[WindowInfo]:
-    """On-screen windows, biggest first. Titles need Screen Recording permission."""
+def list_windows(min_size: int = 200, on_screen_only: bool = False) -> list[WindowInfo]:
+    """Normal app windows, on-screen ones first then biggest first. Titles need Screen Recording permission."""
     from Quartz import (
         CGWindowListCopyWindowInfo,
         kCGNullWindowID,
         kCGWindowListExcludeDesktopElements,
+        kCGWindowListOptionAll,
         kCGWindowListOptionOnScreenOnly,
     )
 
-    infos = CGWindowListCopyWindowInfo(
-        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID
-    )
+    option = kCGWindowListOptionOnScreenOnly if on_screen_only else kCGWindowListOptionAll
+    infos = CGWindowListCopyWindowInfo(option | kCGWindowListExcludeDesktopElements, kCGNullWindowID)
     out = []
     for w in infos or []:
         if w.get("kCGWindowLayer", 0) != 0:
@@ -70,18 +72,51 @@ def list_windows(min_size: int = 200) -> list[WindowInfo]:
             owner=str(w.get("kCGWindowOwnerName", "")),
             title=str(w.get("kCGWindowName", "")),
             region=region,
+            on_screen=bool(w.get("kCGWindowIsOnscreen", False)),
         ))
-    out.sort(key=lambda w: w.region.width * w.region.height, reverse=True)
+    out.sort(key=lambda w: (not w.on_screen, -w.region.width * w.region.height))
     return out
 
 
 def find_window(query: str) -> WindowInfo | None:
-    """Largest on-screen window whose owner or title contains `query` (case-insensitive)."""
+    """Best window whose owner or title contains `query` (case-insensitive): on-screen and largest first."""
     q = query.lower()
     for w in list_windows():
         if q in w.owner.lower() or q in w.title.lower():
             return w
     return None
+
+
+def window_by_id(window_id: int) -> WindowInfo | None:
+    for w in list_windows(min_size=1):
+        if w.id == window_id:
+            return w
+    return None
+
+
+def grab_window(window_id: int) -> np.ndarray | None:
+    """Capture one window's contents by ID, even when it is covered or on another Space.
+
+    Nothing drawn over the window (like our own overlay) ends up in the image, so this is
+    the preferred live source. Returns None if the window is gone.
+    """
+    import Quartz
+
+    img = Quartz.CGWindowListCreateImage(
+        Quartz.CGRectNull,
+        Quartz.kCGWindowListOptionIncludingWindow,
+        window_id,
+        Quartz.kCGWindowImageBoundsIgnoreFraming | Quartz.kCGWindowImageBestResolution,
+    )
+    if img is None:
+        return None
+    w, h = Quartz.CGImageGetWidth(img), Quartz.CGImageGetHeight(img)
+    if w == 0 or h == 0:
+        return None
+    bpr = Quartz.CGImageGetBytesPerRow(img)
+    data = Quartz.CGDataProviderCopyData(Quartz.CGImageGetDataProvider(img))
+    arr = np.frombuffer(data, dtype=np.uint8)[: bpr * h].reshape(h, bpr // 4, 4)[:, :w, :3]  # BGRA -> BGR
+    return np.ascontiguousarray(arr)
 
 
 def looks_blank(frame: np.ndarray) -> bool:
@@ -124,6 +159,52 @@ class ScreenSource:
                     wait = min_dt - (time.monotonic() - t0)
                     if wait > 0:
                         time.sleep(wait)
+
+
+class WindowSource:
+    """Frames from one window by ID. `region` tracks where the window is on screen."""
+
+    def __init__(self, window: WindowInfo, fps_cap: float | None = None, max_frames: int | None = None):
+        self.window = window
+        self.region = window.region
+        self.fps_cap = fps_cap
+        self.max_frames = max_frames
+        self.scale = 1.0
+
+    def refresh(self) -> Region | None:
+        """Re-read the window's position (it may have moved or resized). None if it closed."""
+        info = window_by_id(self.window.id)
+        if info is None:
+            return None
+        self.window = info
+        self.region = info.region
+        return self.region
+
+    def grab(self) -> np.ndarray:
+        frame = grab_window(self.window.id)
+        if frame is None:
+            raise RuntimeError(f"window {self.window.id} is gone")
+        self.scale = frame.shape[1] / max(1, self.region.width)
+        return frame
+
+    def __iter__(self) -> Iterator[tuple[int, float, np.ndarray]]:
+        start = time.monotonic()
+        idx = 0
+        min_dt = 1.0 / self.fps_cap if self.fps_cap else 0.0
+        while self.max_frames is None or idx < self.max_frames:
+            t0 = time.monotonic()
+            frame = grab_window(self.window.id)
+            if frame is None:
+                break
+            if idx % 30 == 0 and self.refresh() is None:
+                break
+            self.scale = frame.shape[1] / max(1, self.region.width)
+            yield idx, t0 - start, frame
+            idx += 1
+            if min_dt:
+                wait = min_dt - (time.monotonic() - t0)
+                if wait > 0:
+                    time.sleep(wait)
 
 
 class VideoSource:
