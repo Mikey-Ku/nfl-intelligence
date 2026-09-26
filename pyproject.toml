@@ -1,0 +1,38 @@
+[project]
+name = "nfl-intelligence"
+version = "0.1.0"
+description = "Turn All-22 game film into top-down tracking data with a computer-vision pipeline."
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Mikey-Ku", email = "mkujr@olin.edu" }]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "ultralytics>=8.3",
+    "supervision>=0.25",
+    "opencv-python>=4.10",
+    "numpy>=1.26",
+    "mss>=9",
+    "PySide6>=6.7",
+    "pyobjc-framework-Quartz>=10; sys_platform == 'darwin'",
+    "pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'",
+    "trackers>=2.6.1",
+]
+
+[project.scripts]
+nfl = "nfl_intel.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["uv_build>=0.11.19,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "nfl_intel"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.uv]
+python-preference = "only-managed"
