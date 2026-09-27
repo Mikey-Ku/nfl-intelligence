@@ -18,11 +18,15 @@ DEFAULT_GRASS_LAB = np.array([110.0, 105.0, 160.0])   # typical turf under light
 
 
 def torso_crop(frame: np.ndarray, box) -> np.ndarray:
-    """Upper-middle part of the box: jersey, not helmet, pants or grass."""
+    """Upper-middle part of the box: jersey, not helmet, pants or grass.
+
+    Kept tight (middle 40% across, 18-42% down): on real film a wider crop pulled in pants,
+    helmets and neighbours, and the team split agreed with the jerseys less often.
+    """
     x1, y1, x2, y2 = box
     w, h = x2 - x1, y2 - y1
-    cx1, cx2 = int(x1 + 0.25 * w), int(x1 + 0.75 * w)
-    cy1, cy2 = int(y1 + 0.15 * h), int(y1 + 0.50 * h)
+    cx1, cx2 = int(x1 + 0.30 * w), int(x1 + 0.70 * w)
+    cy1, cy2 = int(y1 + 0.18 * h), int(y1 + 0.42 * h)
     H, W = frame.shape[:2]
     cx1, cx2 = max(0, cx1), min(W, cx2)
     cy1, cy2 = max(0, cy1), min(H, cy2)
@@ -32,14 +36,16 @@ def torso_crop(frame: np.ndarray, box) -> np.ndarray:
 
 
 def jersey_feature(crop: np.ndarray, grass_lab: np.ndarray | None = None, grass_tolerance: float = 28.0) -> np.ndarray | None:
-    """Mean Lab colour of the pixels that don't look like grass, or None for an empty crop."""
+    """Median Lab colour of the pixels that don't look like grass, or None for an empty crop.
+
+    The median ignores numbers, stripes and a stray arm better than the mean does."""
     if crop.size == 0:
         return None
     grass = DEFAULT_GRASS_LAB if grass_lab is None else np.asarray(grass_lab, dtype=np.float64)
     lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB).reshape(-1, 3).astype(np.float64)
     keep = np.linalg.norm(lab - grass, axis=1) > grass_tolerance
     pixels = lab[keep] if keep.sum() >= 10 else lab
-    return pixels.mean(axis=0)
+    return np.median(pixels, axis=0)
 
 
 def kmeans(X: np.ndarray, k: int, iters: int = 50, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
@@ -103,7 +109,14 @@ class TeamMemory:
 
 
 class TeamAssigner:
-    """Collects jersey features during a warmup, fits the clusters, then labels tracks."""
+    """Collects jersey features during a warmup, fits the clusters, then labels tracks.
+
+    The clusters are refit at 3x and 6x the warmup with everything seen so far: the first
+    half second of a shot is a small, sometimes lopsided sample. Team 0 is always the darker
+    jersey, so labels keep their meaning across refits.
+    """
+
+    MAX_SAMPLES = 3000
 
     def __init__(self, warmup_frames: int = 15, min_samples: int = 20, k: int = 2):
         self.warmup_frames = warmup_frames
@@ -112,20 +125,24 @@ class TeamAssigner:
         self.memory = TeamMemory(k)
         self._buffer: list[np.ndarray] = []
         self._frames = 0
+        self._refits = {warmup_frames * 3, warmup_frames * 6}
 
     def reset(self) -> None:
         self.__init__(self.warmup_frames, self.min_samples, self.classifier.k)
 
     def assign(self, frame: np.ndarray, boxes, track_ids, grass_lab: np.ndarray | None = None) -> list[int | None]:
         feats = [jersey_feature(torso_crop(frame, b), grass_lab) for b in boxes]
-        if not self.classifier.fitted:
+        self._frames += 1
+        if len(self._buffer) < self.MAX_SAMPLES:
             self._buffer.extend(f for f in feats if f is not None)
-            self._frames += 1
+        if not self.classifier.fitted:
             if self._frames >= self.warmup_frames and len(self._buffer) >= self.min_samples:
                 self.classifier.fit(np.array(self._buffer))
-                self._buffer.clear()
             else:
                 return [None] * len(feats)
+        elif self._frames in self._refits:
+            self.classifier.fit(np.array(self._buffer))
+            self.memory = TeamMemory(self.classifier.k)      # old votes used the old clusters
         out: list[int | None] = []
         for f, tid in zip(feats, track_ids):
             if f is None:
