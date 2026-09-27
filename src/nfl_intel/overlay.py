@@ -22,8 +22,13 @@ from .field import draw_field
 from .schema import FrameResult
 
 
-def exclude_from_capture(widget: QWidget) -> bool:
-    """Hide this window from screen recording and let it float over full-screen apps."""
+def float_over_fullscreen(widget: QWidget, hide_from_capture: bool = False) -> bool:
+    """Let the overlay float over full-screen apps on every Space.
+
+    With `hide_from_capture` the window is also left out of screen recordings, which the
+    region-capture source needs so the pipeline doesn't see its own boxes. Window-ID capture
+    never sees the overlay anyway, so there it stays visible to screenshots and recordings.
+    """
     try:
         import objc
         from AppKit import (
@@ -34,13 +39,14 @@ def exclude_from_capture(widget: QWidget) -> bool:
 
         view = objc.objc_object(c_void_p=int(widget.winId()))
         window = view.window()
-        window.setSharingType_(NSWindowSharingNone)
+        if hide_from_capture:
+            window.setSharingType_(NSWindowSharingNone)
         window.setCollectionBehavior_(
             NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary
         )
         return True
     except Exception as e:  # pragma: no cover - depends on the host OS
-        print(f"warning: could not exclude overlay from capture ({e}); use --mirror if boxes stack up", file=sys.stderr)
+        print(f"warning: could not configure the overlay window ({e}); use --mirror if it misbehaves", file=sys.stderr)
         return False
 
 
@@ -51,9 +57,10 @@ def bgr_to_qimage(img: np.ndarray) -> QImage:
 
 
 class OverlayWindow(QWidget):
-    def __init__(self, region: Region, show_minimap: bool = True):
+    def __init__(self, region: Region, show_minimap: bool = True, hide_from_capture: bool = False):
         super().__init__()
         self.region = region
+        self.hide_from_capture = hide_from_capture
         self.scale = 1.0                 # captured pixels per screen point
         self.result: FrameResult | None = None
         self.show_minimap = show_minimap
@@ -74,7 +81,7 @@ class OverlayWindow(QWidget):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
-        exclude_from_capture(self)
+        float_over_fullscreen(self, hide_from_capture=self.hide_from_capture)
 
     def follow(self, source, interval_ms: int = 500) -> None:
         """Keep the overlay on top of a WindowSource's window as it moves or resizes."""
@@ -155,8 +162,10 @@ class TrackingWorker(QThread):
 
 def run_overlay(region: Region, tracker, source: Iterable, sink=None, show_minimap: bool = True,
                 seconds: float | None = None) -> int:
+    from .capture import ScreenSource
+
     app = QApplication.instance() or QApplication(sys.argv)
-    window = OverlayWindow(region, show_minimap=show_minimap)
+    window = OverlayWindow(region, show_minimap=show_minimap, hide_from_capture=isinstance(source, ScreenSource))
     worker = TrackingWorker(tracker, source, sink)
     worker.result_ready.connect(window.set_result)
     worker.finished_all.connect(app.quit)

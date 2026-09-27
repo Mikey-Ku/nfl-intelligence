@@ -1,12 +1,22 @@
+import cv2
 import numpy as np
 
 from nfl_intel.teams import TeamAssigner, TeamClassifier, TeamMemory, jersey_feature, kmeans, torso_crop
+
+GRASS = (40, 160, 60)          # BGR turf
+WHITE = (240, 240, 240)
+RED = (30, 30, 200)
+PACKERS_GREEN = (30, 60, 20)   # dark green jersey, close in hue to the grass
+
+
+def _grass_lab():
+    return cv2.cvtColor(np.uint8([[GRASS]]), cv2.COLOR_BGR2LAB)[0, 0].astype(np.float64)
 
 
 def _player_frame(colors, size=(720, 1280)):
     """Green frame with a coloured jersey rectangle per player; returns (frame, boxes)."""
     frame = np.zeros((*size, 3), dtype=np.uint8)
-    frame[:] = (40, 160, 60)  # grass in BGR
+    frame[:] = GRASS
     boxes = []
     for i, c in enumerate(colors):
         x1, y1 = 60 + i * 90, 300
@@ -34,6 +44,17 @@ def test_torso_crop_clips_to_frame():
     assert jersey_feature(frame[0:0, 0:0]) is None
 
 
+def test_jersey_feature_masks_grass_but_keeps_green_jersey():
+    grass_lab = _grass_lab()
+    # half grass, half dark-green jersey: the feature should be the jersey, not the average
+    crop = np.zeros((20, 20, 3), dtype=np.uint8)
+    crop[:, :10] = GRASS
+    crop[:, 10:] = PACKERS_GREEN
+    jersey_lab = cv2.cvtColor(np.uint8([[PACKERS_GREEN]]), cv2.COLOR_BGR2LAB)[0, 0]
+    feat = jersey_feature(crop, grass_lab)
+    assert np.linalg.norm(feat - jersey_lab) < 3
+
+
 def test_classifier_orders_dark_team_first():
     clf = TeamClassifier()
     clf.fit(np.array([[200, 0, 0], [205, 0, 0], [20, 0, 0], [25, 0, 0]], dtype=float))
@@ -50,8 +71,7 @@ def test_memory_sticks_after_votes():
 
 
 def test_assigner_warmup_then_labels():
-    white, red = (240, 240, 240), (30, 30, 200)
-    frame, boxes = _player_frame([white, red, white, red, white, red])
+    frame, boxes = _player_frame([WHITE, RED, WHITE, RED, WHITE, RED])
     ids = list(range(6))
     assigner = TeamAssigner(warmup_frames=3, min_samples=6)
     assert assigner.assign(frame, boxes, ids) == [None] * 6
@@ -63,3 +83,13 @@ def test_assigner_warmup_then_labels():
     assert labels[0] != labels[1]
     # red jersey is darker in L than white, so it is team 0
     assert labels[1] == 0
+
+
+def test_green_jerseys_split_from_white_on_grass():
+    """Packers-vs-Falcons: green jerseys must not be erased as grass."""
+    frame, boxes = _player_frame([PACKERS_GREEN, WHITE] * 4)
+    ids = list(range(8))
+    assigner = TeamAssigner(warmup_frames=1, min_samples=8)
+    labels = assigner.assign(frame, boxes, ids, grass_lab=_grass_lab())
+    assert labels[0::2] == [0] * 4        # dark green = team 0
+    assert labels[1::2] == [1] * 4        # white = team 1

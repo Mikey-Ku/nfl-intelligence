@@ -1,15 +1,20 @@
 """Split players into two teams by jersey colour.
 
-Each box gives a torso crop; grass pixels are masked out and the mean Lab colour is the
-feature. Features from the first few frames are clustered with k-means (k=2) and later
-frames are assigned to the nearest centre. Votes are accumulated per track so a single
-bad frame can't flip a player's team.
+Each box gives a torso crop; pixels close to the grass colour are masked out and the mean
+Lab colour of what's left is the feature. Features from the first few frames are clustered
+with k-means (k=2) and later frames are assigned to the nearest centre. Votes are
+accumulated per track so a single bad frame can't flip a player's team.
+
+The grass colour comes from the field mask (see fieldmask.py) rather than a fixed hue range,
+because a fixed "green" range would also erase green jerseys.
 """
 
 from __future__ import annotations
 
 import cv2
 import numpy as np
+
+DEFAULT_GRASS_LAB = np.array([110.0, 105.0, 160.0])   # typical turf under lights, OpenCV Lab scale
 
 
 def torso_crop(frame: np.ndarray, box) -> np.ndarray:
@@ -26,14 +31,13 @@ def torso_crop(frame: np.ndarray, box) -> np.ndarray:
     return frame[cy1:cy2, cx1:cx2]
 
 
-def jersey_feature(crop: np.ndarray) -> np.ndarray | None:
-    """Mean Lab colour of the non-grass pixels, or None for an empty crop."""
+def jersey_feature(crop: np.ndarray, grass_lab: np.ndarray | None = None, grass_tolerance: float = 28.0) -> np.ndarray | None:
+    """Mean Lab colour of the pixels that don't look like grass, or None for an empty crop."""
     if crop.size == 0:
         return None
-    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-    grass = (hsv[..., 0] >= 35) & (hsv[..., 0] <= 90) & (hsv[..., 1] >= 50)
+    grass = DEFAULT_GRASS_LAB if grass_lab is None else np.asarray(grass_lab, dtype=np.float64)
     lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB).reshape(-1, 3).astype(np.float64)
-    keep = ~grass.reshape(-1)
+    keep = np.linalg.norm(lab - grass, axis=1) > grass_tolerance
     pixels = lab[keep] if keep.sum() >= 10 else lab
     return pixels.mean(axis=0)
 
@@ -112,8 +116,8 @@ class TeamAssigner:
     def reset(self) -> None:
         self.__init__(self.warmup_frames, self.min_samples, self.classifier.k)
 
-    def assign(self, frame: np.ndarray, boxes, track_ids) -> list[int | None]:
-        feats = [jersey_feature(torso_crop(frame, b)) for b in boxes]
+    def assign(self, frame: np.ndarray, boxes, track_ids, grass_lab: np.ndarray | None = None) -> list[int | None]:
+        feats = [jersey_feature(torso_crop(frame, b), grass_lab) for b in boxes]
         if not self.classifier.fitted:
             self._buffer.extend(f for f in feats if f is not None)
             self._frames += 1
