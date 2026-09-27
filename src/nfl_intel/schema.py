@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 CSV_FIELDS = [
-    "frame", "t", "track_id", "team", "conf",
+    "frame", "t", "shot", "track_id", "team", "conf",
     "x1", "y1", "x2", "y2",
     "foot_x_px", "foot_y_px",
     "x_yd", "y_yd",
@@ -35,6 +35,7 @@ class FrameResult:
     t: float
     size: tuple[int, int]                  # source width, height in pixels
     players: list[TrackedPlayer]
+    shot: int = 0                          # camera shot number; goes up at every cut
 
 
 def _fmt(v: float | None) -> str:
@@ -53,7 +54,7 @@ def write_csv(path: str | Path, results: Iterable[FrameResult]) -> int:
             for p in res.players:
                 fx, fy = p.field_yd if p.field_yd is not None else (None, None)
                 w.writerow([
-                    res.frame, f"{res.t:.3f}", p.track_id,
+                    res.frame, f"{res.t:.3f}", res.shot, p.track_id,
                     "" if p.team is None else p.team, f"{p.conf:.3f}",
                     *(f"{v:.1f}" for v in p.box),
                     _fmt(p.foot_px[0]), _fmt(p.foot_px[1]),
@@ -71,7 +72,7 @@ def read_csv(path: str | Path) -> list[FrameResult]:
             idx = int(row["frame"])
             res = frames.get(idx)
             if res is None:
-                res = frames[idx] = FrameResult(idx, float(row["t"]), (0, 0), [])
+                res = frames[idx] = FrameResult(idx, float(row["t"]), (0, 0), [], shot=int(row.get("shot") or 0))
             field = None
             if row["x_yd"] != "":
                 field = (float(row["x_yd"]), float(row["y_yd"]))

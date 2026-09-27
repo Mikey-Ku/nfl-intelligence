@@ -79,3 +79,20 @@ def test_pipeline_without_field_uses_whole_frame():
     assert tracker.field is None
     assert det.sizes[-1] == (720, 1280)
     assert len(res.players) == 1 and res.players[0].field_yd is None
+
+
+def test_camera_cut_resets_tracks_and_keeps_ids_unique():
+    frames = [[(100, 150, 150, 270), (500, 150, 550, 270)]] * 40
+    det = FakeDetector(frames)
+    tracker = PlayTracker(detector=det, fps=30, team_warmup_frames=2)
+    a = _stadium_frame()
+    b = a.copy()
+    b[:] = b[::-1, ::-1]                     # a different camera angle: everything moves at once
+    b[150:600, 100:1180] = GRASS
+    first = [tracker.process(a, i, i / 30) for i in range(10)]
+    second = [tracker.process(np.ascontiguousarray(a[:, ::-1]) // 3, 10 + i, (10 + i) / 30) for i in range(10)]
+    assert {r.shot for r in first} == {0}
+    assert {r.shot for r in second} == {1}
+    ids_a = {p.track_id for r in first for p in r.players}
+    ids_b = {p.track_id for r in second for p in r.players}
+    assert ids_a and not (ids_a & ids_b)

@@ -90,3 +90,16 @@ def test_panel_renders_both_states():
     assert on.shape == off.shape
     assert (on.astype(int) - off.astype(int)).any()       # the value card changed
     del app
+
+
+def test_camera_cut_starts_a_new_play():
+    stats = LiveStats()
+    for i in range(20):
+        f = _frame(i, range(12)); f.shot = 0
+        snap = stats.update(f)
+    assert snap.play == 1
+    for i in range(20, 30):
+        f = _frame(i, range(200, 212)); f.shot = 1
+        snap = stats.update(f)
+    assert snap.play == 2 and snap.reacquired == 0 and snap.lost == 0
+    assert snap.play_clock == pytest.approx(9 / 20)

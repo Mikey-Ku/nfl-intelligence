@@ -73,6 +73,7 @@ class LiveStats:
         self._history: deque[tuple[float, int]] = deque()
         self._in_play = False
         self._empty_since: float | None = None
+        self._shot: int | None = None
         self._start_play(0.0)
 
     def _start_play(self, t: float) -> None:
@@ -81,8 +82,12 @@ class LiveStats:
         self._last_seen: dict[int, float] = {}
         self._values: list[tuple[float, float]] = []
 
-    def _segment(self, t: float, n_players: int) -> None:
-        """A play starts when enough players appear and ends after the field has been empty a while."""
+    def _segment(self, t: float, n_players: int, shot: int) -> None:
+        """A play starts when enough players appear, and ends at a camera cut or after the
+        field has been empty a while."""
+        if self._shot is not None and shot != self._shot:
+            self._in_play = False
+        self._shot = shot
         if n_players >= MIN_PLAYERS_FOR_PLAY:
             self._empty_since = None
             if not self._in_play:
@@ -126,7 +131,7 @@ class LiveStats:
         self._last_t = t
 
         players = result.players
-        self._segment(t, len(players))
+        self._segment(t, len(players), result.shot)
         for p in players:
             self._first_seen.setdefault(p.track_id, t)
             self._last_seen[p.track_id] = t

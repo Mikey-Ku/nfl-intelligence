@@ -31,3 +31,6 @@ manifest.json
 .DS_Store
 .idea/
 .vscode/
+
+# Big Data Bowl downloads (licensed, never committed)
+nfl-big-data-bowl-*/
