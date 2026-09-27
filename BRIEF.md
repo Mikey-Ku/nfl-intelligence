@@ -22,7 +22,7 @@ Just me. A personal learning project; nothing is redistributed.
 
 ## Out of scope (v2 ideas)
 - Fusing both angles into one combined track (the MVP compares them first).
-- Live within-play value line (win probability / expected points per frame) and credit assignment for the swings.
+- Live within-play value line and plus/minus with credit assignment. **Promoted to the next stage on 2026-09-27**: the value model trains on public Big Data Bowl tracking data and runs on our video-derived tracks; a live stats panel sits beside the video.
 - Coverage recognition (man/zone, Cover 1/2/3/4/6), QB decision quality, play-call tendencies against defensive looks.
 - Reacting to pre-snap movement (shifts, motion, safety rotation), the observable stand-in for audibles.
 - Ball tracking (the MVP uses the play-by-play to know who carried or was targeted).

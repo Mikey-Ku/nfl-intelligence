@@ -9,8 +9,10 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
   gitignored. Never commit frames, crops, or clips either, including in tests or docs.
 - Python 3.12 via `uv`. Run things with `uv run nfl ...` and tests with `uv run pytest`.
 - Vision models start pretrained and get fine-tuned. Don't propose training from scratch.
-- Input is video only (screen capture of the NFL Pro player, or clip files). Public tracking
-  data may be used to evaluate, never as model input.
+- At run time the only input is video (screen capture of the NFL Pro player, or clip files).
+  The value model behind the plus/minus is trained on public NFL Big Data Bowl tracking data
+  (decided 2026-09-27); that data lives in `data/bdb/`, is never committed, and is also the
+  answer key for evaluation.
 - Commit and push at pipeline stage boundaries or when asked; the repo is private
   (`Mikey-Ku/nfl-intelligence`). Never push footage, frames or weights.
 
@@ -21,11 +23,14 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
 - `src/nfl_intel/track.py` — BoT-SORT (camera-motion compensation) / ByteTrack giving stable IDs
 - `src/nfl_intel/teams.py` — jersey-color clustering into two teams, smoothed per track
 - `src/nfl_intel/field.py` — field model in yards, homography, landmark names, field drawing
+- `src/nfl_intel/fieldmask.py` — turf band, painted sidelines, grass colour; drives the field crop and the bench filter
 - `src/nfl_intel/pipeline.py` — `PlayTracker`: one frame in, `FrameResult` out
-- `src/nfl_intel/overlay.py` — transparent always-on-top overlay window (PySide6)
+- `src/nfl_intel/stats.py` — `LiveStats`: play segmentation, team counts, tracking health, value/plus-minus hooks
+- `src/nfl_intel/panel.py` — renders the stats side panel (QPainter), shared by the window, test shots and tests
+- `src/nfl_intel/overlay.py` — transparent overlay window + docked stats panel window (PySide6)
 - `src/nfl_intel/replay.py` — tracking CSV → top-down replay video
 - `src/nfl_intel/calibrate.py` — click landmarks on a frame to build a homography
 - `src/nfl_intel/evaluate.py` — score a tracking CSV against hand-labeled truth (yards error, recall, ID switches, MOTA)
 - `src/nfl_intel/train.py` — keyframe pre-labeling, dataset YAML, two-stage YOLO fine-tune
-- `src/nfl_intel/cli.py` — `nfl` command: check, windows, overlay, run, replay, eval, calibrate, prelabel, train
+- `src/nfl_intel/cli.py` — `nfl` command: check, windows, overlay, capture, run, replay, eval, calibrate, prelabel, train
 - `docs/PRIOR_ART.md` — what exists elsewhere, how it runs/tests/views, ranked improvements

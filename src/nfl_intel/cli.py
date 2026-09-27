@@ -3,6 +3,7 @@
   nfl check                          environment check: device, weights, screen capture
   nfl windows [QUERY]                list capturable windows (find the NFL Pro player)
   nfl overlay --window "NFL Pro"     live overlay on top of the player
+  nfl capture --window "NFL Pro"     save the raw capture as a clip to re-run offline
   nfl run clip.mp4 [...]             track clip files to CSV (+ optional annotated video)
   nfl replay outputs/clip.csv        render a top-down replay video from a CSV
   nfl eval outputs/clip.csv gt.csv   position error, recall, ID switches vs hand labels
@@ -19,6 +20,7 @@ import time
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 from . import __version__
 from .capture import (
@@ -132,15 +134,40 @@ def cmd_windows(args) -> None:
         print(w)
 
 
+def _shot(frame, res, snap, tracker, path: Path) -> None:
+    """One test image: the annotated field next to the stats panel."""
+    from .draw import annotate
+    from .fieldmask import expand_bbox
+    from .panel import qimage_to_bgr, render_panel
+
+    img = annotate(frame, res)
+    field = getattr(tracker, "field", None)
+    if field is not None:
+        x1, y1, x2, y2 = expand_bbox(field.bbox, frame.shape, margin=0.04)
+        img = img[y1:y2, x1:x2]
+    height = 900
+    img = cv2.resize(img, (int(img.shape[1] * height / img.shape[0]), height), interpolation=cv2.INTER_AREA)
+    panel = qimage_to_bgr(render_panel(snap, 300, height // 2, dpr=2.0))
+    gap = np.full((height, 16, 3), 20, dtype=np.uint8)
+    cv2.imwrite(str(path), np.hstack([img, gap, panel]), [cv2.IMWRITE_JPEG_QUALITY, 88])
+
+
 def cmd_overlay(args) -> None:
+    from .stats import LiveStats
+
     source = _resolve_source(args, fps_cap=args.fps_cap)
     region = source.region
     tracker = _build_tracker(args, fps=args.fps_cap or 30.0)
+    stats = LiveStats()
 
     results = []
     writer = None
+    shots_dir = Path(args.shots) if args.shots else None
+    if shots_dir:
+        shots_dir.mkdir(parents=True, exist_ok=True)
+    last_shot = [-1e9]
 
-    def sink(res, frame):
+    def sink(res, frame, snap):
         nonlocal writer
         if args.out:
             results.append(res)
@@ -151,27 +178,41 @@ def cmd_overlay(args) -> None:
                 h, w = frame.shape[:2]
                 writer = cv2.VideoWriter(args.record, cv2.VideoWriter_fourcc(*"mp4v"), args.fps_cap or 30.0, (w, h))
             writer.write(annotate(frame, res))
+        if shots_dir and snap is not None and res.players and res.t - last_shot[0] >= args.shot_every:
+            last_shot[0] = res.t
+            _shot(frame, res, snap, tracker, shots_dir / f"shot_{res.t:06.1f}s.jpg")
 
     try:
         if args.mirror:
             from .draw import annotate
+            from .panel import qimage_to_bgr, render_panel
+            from PySide6.QtGui import QGuiApplication
 
+            app = QGuiApplication.instance() or QGuiApplication([])
             print("mirror mode: press q in the window to stop")
             t_start = time.monotonic()
             for idx, t, frame in source:
                 res = tracker.process(frame, idx, t)
-                sink(res, frame)
-                cv2.imshow("nfl overlay (mirror)", annotate(frame, res))
+                field = tracker.field
+                snap = stats.update(res, field.bbox if field is not None else None)
+                sink(res, frame, snap)
+                view = annotate(frame, res)
+                if not args.no_panel:
+                    panel = qimage_to_bgr(render_panel(snap, 300, view.shape[0] // 2, dpr=2.0))
+                    view = np.hstack([view, panel])
+                cv2.imshow("nfl overlay (mirror)", view)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
                 if args.seconds and time.monotonic() - t_start > args.seconds:
                     break
             cv2.destroyAllWindows()
+            del app
         else:
             from .overlay import run_overlay
 
             print("overlay running: Ctrl-C in this terminal to stop" + (f" (auto-stop after {args.seconds:g}s)" if args.seconds else ""))
-            run_overlay(region, tracker, source, sink, show_minimap=not args.no_minimap, seconds=args.seconds)
+            run_overlay(region, tracker, source, sink, show_minimap=not args.no_minimap, seconds=args.seconds,
+                        stats=stats, panel_side=None if args.no_panel else args.panel_side)
     except KeyboardInterrupt:
         pass
     finally:
@@ -181,10 +222,47 @@ def cmd_overlay(args) -> None:
         if args.out and results:
             n = write_csv(args.out, results)
             print(f"wrote {n} rows to {args.out}")
+        if shots_dir:
+            print(f"test shots in {shots_dir}")
+
+
+def cmd_capture(args) -> None:
+    """Save the raw (un-annotated) capture so the pipeline can be re-run on it offline."""
+    source = _resolve_source(args, fps_cap=args.fps)
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    writer = None
+    times = []
+    t_start = time.monotonic()
+    try:
+        for idx, t, frame in source:
+            if writer is None:
+                h, w = frame.shape[:2]
+                writer = cv2.VideoWriter(str(out), cv2.VideoWriter_fourcc(*"mp4v"), args.fps, (w, h))
+            writer.write(frame)
+            times.append(t)
+            if time.monotonic() - t_start > args.seconds:
+                break
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if writer is not None:
+            writer.release()
+    if len(times) > 1:
+        real_fps = (len(times) - 1) / (times[-1] - times[0])
+        out.with_suffix(".times.csv").write_text("frame,t\n" + "".join(f"{i},{t:.3f}\n" for i, t in enumerate(times)))
+        print(f"wrote {len(times)} frames to {out} (captured at {real_fps:.1f} fps, file plays at {args.fps:g})")
+    else:
+        print("nothing captured")
 
 
 def cmd_run(args) -> None:
+    from PySide6.QtGui import QGuiApplication
+
     from .draw import annotate
+    from .stats import LiveStats
+
+    app = QGuiApplication.instance() or QGuiApplication([])   # the stats panel renders with Qt
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -202,9 +280,17 @@ def cmd_run(args) -> None:
             writer = cv2.VideoWriter(str(out_dir / f"{stem}.annotated.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), src.fps, src.size)
         t0 = time.perf_counter()
         results = []
+        stats = LiveStats()
+        last_shot = -1e9
         for idx, t, frame in src:
             res = tracker.process(frame, idx, t)
             results.append(res)
+            snap = stats.update(res, tracker.field.bbox if tracker.field is not None else None)
+            if args.shots and res.players and t - last_shot >= args.shot_every:
+                last_shot = t
+                shots = Path(args.shots)
+                shots.mkdir(parents=True, exist_ok=True)
+                _shot(frame, res, snap, tracker, shots / f"{stem}_{t:06.1f}s.jpg")
             if writer is not None or args.preview:
                 img = annotate(frame, res)
                 if writer is not None:
@@ -218,7 +304,9 @@ def cmd_run(args) -> None:
         src.release()
         n = write_csv(csv_path, results)
         dt = time.perf_counter() - t0
-        print(f"{path}: {len(results)} frames, {n} rows -> {csv_path}  ({len(results) / dt:.1f} fps)")
+        ids = {p.track_id for r in results for p in r.players}
+        print(f"{path}: {len(results)} frames, {n} rows -> {csv_path}  ({len(results) / dt:.1f} fps, "
+              f"{len(ids)} track ids, {snap.reacquired} picked up late)")
     if args.preview:
         cv2.destroyAllWindows()
 
@@ -303,7 +391,18 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--out", help="write tracking CSV when the session ends")
     o.add_argument("--record", help="write the annotated capture to this mp4")
     o.add_argument("--seconds", type=float, default=None, help="stop automatically after this many seconds")
+    o.add_argument("--no-panel", action="store_true", help="hide the live stats panel")
+    o.add_argument("--panel-side", choices=["left", "right"], default="left", help="which side of the video the stats panel docks to")
+    o.add_argument("--shots", help="save a test image (annotated field + stats panel) into this folder every few seconds")
+    o.add_argument("--shot-every", type=float, default=3.0, help="seconds between test images")
     o.set_defaults(func=cmd_overlay)
+
+    cp = sub.add_parser("capture", help="save the raw window capture to a clip for offline re-runs")
+    _add_source_args(cp)
+    cp.add_argument("--out", default="data/clips/capture.mp4")
+    cp.add_argument("--seconds", type=float, default=20.0)
+    cp.add_argument("--fps", type=float, default=15.0, help="capture rate cap and playback rate of the file")
+    cp.set_defaults(func=cmd_capture)
 
     r = sub.add_parser("run", help="track clip files")
     r.add_argument("videos", nargs="+")
@@ -311,6 +410,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--out-dir", default="outputs")
     r.add_argument("--save-video", action="store_true", help="also write <clip>.annotated.mp4")
     r.add_argument("--preview", action="store_true", help="show frames while tracking (q to skip)")
+    r.add_argument("--shots", help="save test images (annotated field + stats panel) into this folder")
+    r.add_argument("--shot-every", type=float, default=2.0, help="seconds between test images")
     r.set_defaults(func=cmd_run)
 
     rp = sub.add_parser("replay", help="render a top-down replay from a tracking CSV")

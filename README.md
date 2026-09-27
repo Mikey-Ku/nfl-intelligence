@@ -31,10 +31,20 @@ uv run nfl overlay --window "Chrome" --out outputs/live.csv
 ```
 
 A transparent, click-through window sits on top of the player and draws each tracked
-player's box, ID and team colour, with a top-down minimap in the corner once a
-calibration is loaded (`--calib calibrations/sideline.json`). The overlay asks macOS to
-leave it out of screen capture so the pipeline doesn't see its own boxes; if boxes ever
-start stacking up, run with `--mirror` to get a side window instead.
+player's box, ID and team colour. A stats panel docks beside the video (left by default,
+`--panel-side right`, `--no-panel`): players on the field per team, tracking health, and the
+play value with its plus/minus once calibration and the value model exist. The window is
+captured by ID, so the overlay never sees its own boxes and other windows can cover it.
+
+`--shots outputs/shots` saves a test image (annotated field + panel) every few seconds.
+`--seconds 40` stops on its own; Ctrl-C also ends cleanly and writes the CSV.
+
+To iterate without NFL Pro open, save a raw clip once and re-run on it:
+
+```bash
+uv run nfl capture --window "NFL Pro" --seconds 20 --out data/clips/atl-gb-td.mp4
+uv run nfl run data/clips/atl-gb-td.mp4 --shots outputs/shots
+```
 
 ## Clip files
 
