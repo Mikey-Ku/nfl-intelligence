@@ -143,7 +143,13 @@ def _shot(frame, res, snap, tracker, path: Path) -> None:
     from .fieldmask import expand_bbox
     from .panel import qimage_to_bgr, render_panel
 
-    img = annotate(frame, res)
+    base = frame
+    registrar = getattr(tracker, "registrar", None)
+    if registrar is not None and registrar.locked and registrar.rect is not None:
+        from .registration import draw_grid
+
+        base = draw_grid(frame, registrar.H, registrar.rect)
+    img = annotate(base, res)
     field = getattr(tracker, "field", None)
     if field is not None:
         x1, y1, x2, y2 = expand_bbox(field.bbox, frame.shape, margin=0.04)
@@ -156,12 +162,12 @@ def _shot(frame, res, snap, tracker, path: Path) -> None:
 
 
 def cmd_overlay(args) -> None:
-    from .stats import LiveStats
+    from .stats import LiveStats, geometry_rows
 
     source = _resolve_source(args, fps_cap=args.fps_cap)
     region = source.region
     tracker = _build_tracker(args, fps=args.fps_cap or 30.0)
-    stats = LiveStats()
+    stats = LiveStats(metrics_fn=geometry_rows)
 
     results = []
     writer = None
@@ -263,7 +269,7 @@ def cmd_run(args) -> None:
     from PySide6.QtGui import QGuiApplication
 
     from .draw import annotate
-    from .stats import LiveStats
+    from .stats import LiveStats, geometry_rows
 
     app = QGuiApplication.instance() or QGuiApplication([])   # the stats panel renders with Qt
 
@@ -283,7 +289,7 @@ def cmd_run(args) -> None:
             writer = cv2.VideoWriter(str(out_dir / f"{stem}.annotated.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), src.fps, src.size)
         t0 = time.perf_counter()
         results = []
-        stats = LiveStats()
+        stats = LiveStats(metrics_fn=geometry_rows)
         last_shot = -1e9
         for idx, t, frame in src:
             res = tracker.process(frame, idx, t)

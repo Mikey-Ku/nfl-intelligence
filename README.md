@@ -95,7 +95,23 @@ uv run nfl train --epochs 40                          # two-stage fine-tune at 1
 uv run nfl overlay --window "Chrome" --weights runs/detect/nfl/weights/best.pt
 ```
 
-## Field calibration
+## Field mapping (pixels to yards)
+
+Automatic, from the painted lines. `nfl run` and `nfl overlay` do it on their own:
+
+1. Find the paint (bright, colourless, thin), ignoring players, end-zone lettering and logos.
+2. The biggest family of lines meeting at one vanishing point is the yard lines; they are
+   numbered so equal steps in number are equal steps on the field.
+3. Rows of hash marks are found and checked: their dashes must sit on whole yards.
+4. A level pan/tilt/zoom camera is fitted to it all, then followed frame to frame.
+
+On the saved clip the sideline angle maps 70-100% of frames with the fitted lines on the paint
+(0.03-0.08 yd error against the lines used). The end-zone angle (camera looking down the
+field) is **not mapped yet**: through its long lens the scale across the field comes out
+wrong, so the pipeline declines to map it. Yard numbers are relative to the first line seen,
+not yet the real yard line. A first lock takes about a second; following takes 25-50 ms a frame.
+
+## Manual calibration (fallback)
 
 ```bash
 uv run nfl calibrate --video data/clips/play01_sideline.mp4 --frame 30 --out calibrations/sideline.json

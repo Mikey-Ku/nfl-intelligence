@@ -204,3 +204,23 @@ class LiveStats:
             on_field_note=self.on_field_note,
             delta_note="vs a typical play" if self.baseline_fn is not None else "since the snap",
         )
+
+
+def geometry_rows(result: FrameResult) -> list[tuple[str, str]]:
+    """What can be said in yards before roles are known: how the 22 are spread out."""
+    pts = [(p.field_yd, p.team) for p in result.players if p.field_yd is not None]
+    if len(pts) < 6:
+        return []
+    import numpy as np
+
+    xy = np.array([p for p, _ in pts])
+    rows = [
+        ("Spread across the field", f"{np.ptp(xy[:, 1]):.0f} yd"),
+        ("Depth, front to back", f"{np.ptp(xy[:, 0]):.0f} yd"),
+    ]
+    a = np.array([p for p, t in pts if t == 0])
+    b = np.array([p for p, t in pts if t == 1])
+    if len(a) >= 4 and len(b) >= 4:
+        gap = abs(float(np.median(a[:, 0]) - np.median(b[:, 0])))
+        rows.append(("Between the two teams", f"{gap:.1f} yd"))
+    return rows

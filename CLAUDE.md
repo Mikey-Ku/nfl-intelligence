@@ -23,6 +23,8 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
 - `src/nfl_intel/track.py` — BoT-SORT (camera-motion compensation) / ByteTrack giving stable IDs
 - `src/nfl_intel/teams.py` — jersey-color clustering into two teams, smoothed per track
 - `src/nfl_intel/field.py` — field model in yards, homography, landmark names, field drawing
+- `src/nfl_intel/camera.py` — level pan/tilt/zoom camera model; fits a camera to yard-line and hash-row constraints
+- `src/nfl_intel/registration.py` — field registration: paint → yard lines → numbering → hash rows → camera; `FieldRegistrar` follows the camera through a shot
 - `src/nfl_intel/fieldmask.py` — turf band, painted sidelines, grass colour; drives the field crop and the bench filter
 - `src/nfl_intel/pipeline.py` — `PlayTracker`: one frame in, `FrameResult` out
 - `src/nfl_intel/stats.py` — `LiveStats`: play segmentation, team counts, tracking health, value/plus-minus hooks
@@ -33,7 +35,7 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
 - `src/nfl_intel/coverage.py` — coverage recognition (man/zone + shell) from defender positions, labels from nflverse participation
 - `src/nfl_intel/value_train.py` — trains/evaluates the value models (weeks 1-14 train, 15-18 test)
 - `src/nfl_intel/demo.py` — replays a Big Data Bowl play top-down with the value panel
-- `src/nfl_intel/replay.py` — tracking CSV → top-down replay video
+- `src/nfl_intel/replay.py` — tracking CSV → top-down replay video (`render_topdown` for mapped shots)
 - `src/nfl_intel/calibrate.py` — click landmarks on a frame to build a homography
 - `src/nfl_intel/evaluate.py` — score a tracking CSV against hand-labeled truth (yards error, recall, ID switches, MOTA)
 - `src/nfl_intel/train.py` — keyframe pre-labeling, dataset YAML, two-stage YOLO fine-tune

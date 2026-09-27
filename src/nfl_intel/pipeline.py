@@ -11,6 +11,7 @@ import supervision as sv
 from .detect import DEFAULT_WEIGHTS, PlayerDetector
 from .field import FieldCalibration
 from .fieldmask import FieldInfo, expand_bbox, find_field
+from .registration import FieldRegistrar
 from .schema import FrameResult, TrackedPlayer
 from .teams import TeamAssigner
 from .track import PlayerTracker
@@ -33,6 +34,7 @@ class PlayTracker:
         field_every: int = 15,
         on_field_only: bool = True,
         cut_threshold: float = 10.0,
+        register_field: bool = True,
     ):
         self.detector = detector or PlayerDetector(weights, device=device, conf=conf, imgsz=imgsz, tiles=tiles)
         self.tracker = PlayerTracker(fps=fps, kind=tracker)
@@ -42,6 +44,8 @@ class PlayTracker:
         self.field_every = field_every
         self.on_field_only = on_field_only
         self.cut_threshold = cut_threshold
+        # a fixed calibration file wins; otherwise the field is registered from its painted lines
+        self.registrar = FieldRegistrar() if (register_field and calibration is None) else None
         self.field: FieldInfo | None = None
         self.shot = 0
         self._frames_seen = 0
@@ -59,6 +63,8 @@ class PlayTracker:
         self._frames_seen = 0
         self._id_offset = self._max_id + 1
         self._field_votes = {}
+        if self.registrar is not None:
+            self.registrar.reset()
 
     def _is_cut(self, frame: np.ndarray) -> bool:
         """A camera cut: the whole picture changes at once. Pans and zooms move the mean
@@ -118,6 +124,9 @@ class PlayTracker:
             self.shot += 1
         self._update_field(frame)
         dets = self._filter(self._detect(frame), frame.shape)
+        mapping = None
+        if self.registrar is not None and self.field is not None:
+            mapping = self.registrar.update(frame, self.field, dets.xyxy if len(dets) else None)
         dets = self.tracker.update(dets, frame)
         if len(dets) and dets.tracker_id is not None:
             dets = dets[dets.tracker_id >= 0]          # BoT-SORT marks unconfirmed tracks with -1
@@ -130,7 +139,12 @@ class PlayTracker:
             grass = self.field.grass_lab if self.field is not None else None
             teams = self.teams.assign(frame, dets.xyxy, dets.tracker_id, grass)
             feet = np.column_stack([(dets.xyxy[:, 0] + dets.xyxy[:, 2]) / 2, dets.xyxy[:, 3]])
-            field = self.calibration.to_field(feet) if self.calibration is not None else None
+            if self.calibration is not None:
+                field = self.calibration.to_field(feet)
+            elif mapping is not None:
+                field = cv2.perspectiveTransform(feet.reshape(-1, 1, 2).astype(np.float64), mapping).reshape(-1, 2)
+            else:
+                field = None
             for i in range(len(dets)):
                 players.append(TrackedPlayer(
                     track_id=int(dets.tracker_id[i]),
