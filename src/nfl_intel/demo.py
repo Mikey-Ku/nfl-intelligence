@@ -139,7 +139,7 @@ def to_results(sp: ScoredPlay) -> list[FrameResult]:
     return out
 
 
-def make_stats(sp: ScoredPlay, model: PassValueModel | None = None) -> LiveStats:
+def make_stats(sp: ScoredPlay, model: PassValueModel | None = None, coverage=None) -> LiveStats:
     def value_fn(result: FrameResult) -> float:
         return float(sp.values[result.frame])
 
@@ -155,8 +155,21 @@ def make_stats(sp: ScoredPlay, model: PassValueModel | None = None) -> LiveStats
             ("Most open", f"{most_open.label}  {most_open.separation:.1f} yd"),
             ("Tightest coverage", f"{tightest.label}  {tightest.separation:.1f} yd"),
         ]
-        if result.frame == len(sp.scores) - 1 and decision(sp) is not None:
-            rows.append(decision(sp))
+        play = sp.play
+        last = result.frame == len(sp.scores) - 1
+        if coverage is not None:
+            read = coverage.read(play.xy, play.defenders, play.receivers, play.los, result.frame)
+            if read is not None:
+                rows.append(("Coverage read", read.text))
+        if last:
+            if play.man_zone is not None:
+                from .coverage import SHELL_NAMES
+
+                rows.append(("Charted coverage", f"{play.man_zone.capitalize()}, {SHELL_NAMES.get(play.coverage, play.coverage or '?')}"))
+            if play.pressure is not None:
+                rows.append(("Pressure on the QB", "Yes" if play.pressure else "No"))
+            if decision(sp) is not None:
+                rows.append(decision(sp))
         return rows
 
     return LiveStats(value_fn=value_fn, metrics_fn=metrics_fn, value_unit="yd",
@@ -241,13 +254,13 @@ def draw_frame(sp: ScoredPlay, t: int, base: np.ndarray, x0: float, scale: float
 
 
 def render(sp: ScoredPlay, out_path: str | Path, height: int = 900, hold: float = 2.0, shots_dir: str | Path | None = None,
-           model: PassValueModel | None = None) -> Path:
+           model: PassValueModel | None = None, coverage=None) -> Path:
     """Write the replay video (30 fps, real time) and optionally a few still shots."""
     from .panel import qimage_to_bgr, render_panel
 
     play = sp.play
     base, x0, scale = _field_view(play, height)
-    stats = make_stats(sp, model)
+    stats = make_stats(sp, model, coverage)
     results = to_results(sp)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

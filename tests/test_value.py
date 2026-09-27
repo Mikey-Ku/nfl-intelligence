@@ -127,3 +127,30 @@ def test_fit_and_evaluate_learn_separation(tmp_path):
     model.save(path)
     again = PassValueModel.load(path)
     assert np.allclose(again.score(X[:5])[0], model.score(X[:5])[0])
+
+
+def test_coverage_features_and_read():
+    from nfl_intel.coverage import SHELLS, CoverageModel, coverage_features
+
+    play = _play()
+    assert coverage_features(play.xy, play.defenders[:3], play.receivers, play.los, 10) is None   # too few defenders
+    xy = np.concatenate([play.xy, np.tile(np.array([[[38.0, 30.0]]]), (len(play.xy), 1, 1))], axis=1)
+    defenders = play.defenders + [7]
+    f0 = coverage_features(xy, defenders, play.receivers, play.los, 0)
+    f1 = coverage_features(xy, defenders, play.receivers, play.los, 15)
+    assert f0.shape == f1.shape and f0[-6] == 0.0 and f1[-6] == 1.5
+    assert f0[0] == 45.0                       # deepest defender first: the safety, 45 yd past the line
+    assert np.nanmax(f0[28:35]) == 0.0         # nobody has moved at the snap
+
+    class Fake:
+        classes_ = np.array([1, 4])
+
+        def __init__(self, p):
+            self.p = p
+
+        def predict_proba(self, X):
+            return np.tile(self.p, (len(X), 1))
+
+    model = CoverageModel(Fake([0.3, 0.7]), Fake([0.2, 0.8]))
+    read = model.read(xy, defenders, play.receivers, play.los, 40)
+    assert read.man == 0.7 and read.shell == SHELLS[4] and read.text == "Man 70%, Cover 3 80%"

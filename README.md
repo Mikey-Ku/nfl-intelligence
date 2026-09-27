@@ -67,8 +67,15 @@ after the snap.
 
 ```bash
 uv run nfl value-train                 # ~1 min: trains on 2023 weeks 1-14, tests on 15-18
+uv run nfl coverage-train              # man/zone and coverage shell from defender movement
 uv run nfl value-demo --week 16        # replays real plays top-down with the live panel
 ```
+
+Public label files, all from nflverse releases on GitHub, go in `data/nflverse/`:
+`play_by_play_2023.parquet` (results), `pbp_participation_2023.parquet` (pressure, coverage,
+formation per play), `ftn_charting_2023.parquet` (blitzers, play action, catchable ball).
+Coverage recognition is right on man vs zone 70% of the time at the snap and 77% after two
+seconds (always guessing zone: 57%).
 
 Needs the Big Data Bowl 2026 data in `data/bdb/2026-prediction/` and nflverse play-by-play in
 `data/nflverse/play_by_play_2023.parquet`. On held-out plays the catch model scores AUC 0.76

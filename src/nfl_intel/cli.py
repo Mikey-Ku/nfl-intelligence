@@ -11,6 +11,7 @@
   nfl prelabel clips/*.mp4           keyframes + detector boxes as YOLO labels to correct
   nfl train                          fine-tune YOLO on the corrected labels
   nfl value-train                    train the pass value models on Big Data Bowl throws
+  nfl coverage-train                 train man/zone and coverage-shell recognition
   nfl value-demo --week 16           replay real plays top-down with the live plus/minus
 """
 
@@ -350,6 +351,12 @@ def cmd_value_train(args) -> None:
     train(root=args.data, outcomes_path=args.outcomes, out=args.out, noise=args.noise)
 
 
+def cmd_coverage_train(args) -> None:
+    from .coverage import train
+
+    train(root=args.data, outcomes_path=args.outcomes, out=args.out)
+
+
 def cmd_value_demo(args) -> None:
     from PySide6.QtGui import QGuiApplication
 
@@ -359,6 +366,11 @@ def cmd_value_demo(args) -> None:
 
     app = QGuiApplication.instance() or QGuiApplication([])   # the panel renders with Qt
     model = PassValueModel.load(args.model)
+    coverage = None
+    if Path(args.coverage_model).exists():
+        from .coverage import CoverageModel
+
+        coverage = CoverageModel.load(args.coverage_model)
     outcomes = load_outcomes(args.outcomes)
     plays = []
     for play in iter_plays(args.week, args.data, outcomes):
@@ -377,7 +389,7 @@ def cmd_value_demo(args) -> None:
     out_dir = Path(args.out_dir)
     for sp in scored[: args.count]:
         name = f"value_w{sp.play.week:02d}_{sp.play.game_id}_{sp.play.play_id}"
-        path = render(sp, out_dir / f"{name}.mp4", shots_dir=out_dir / "shots", model=model)
+        path = render(sp, out_dir / f"{name}.mp4", shots_dir=out_dir / "shots", model=model, coverage=coverage)
         print(f"{path}  value {sp.values[0]:.1f} -> {sp.values[-1]:.1f} yd (range {sp.swing:.1f})  {sp.play.desc[:90]}")
     del app
 
@@ -487,6 +499,12 @@ def build_parser() -> argparse.ArgumentParser:
     vt.add_argument("--noise", type=float, default=0.3, help="position noise (yards) added to a copy of the training data")
     vt.set_defaults(func=cmd_value_train)
 
+    ct = sub.add_parser("coverage-train", help="train coverage recognition (man/zone and shell) on Big Data Bowl plays")
+    ct.add_argument("--data", default="data/bdb/2026-prediction")
+    ct.add_argument("--outcomes", default="data/nflverse/play_by_play_2023.parquet")
+    ct.add_argument("--out", default="models/coverage.pkl")
+    ct.set_defaults(func=cmd_coverage_train)
+
     vd = sub.add_parser("value-demo", help="replay Big Data Bowl plays top-down with the live value panel")
     vd.add_argument("--week", type=int, default=16, help="2023 week (15-18 were held out of training)")
     vd.add_argument("--game", type=int, default=None)
@@ -495,6 +513,7 @@ def build_parser() -> argparse.ArgumentParser:
     vd.add_argument("--data", default="data/bdb/2026-prediction")
     vd.add_argument("--outcomes", default="data/nflverse/play_by_play_2023.parquet")
     vd.add_argument("--model", default="models/pass_value.pkl")
+    vd.add_argument("--coverage-model", default="models/coverage.pkl")
     vd.add_argument("--out-dir", default="outputs/value_demo")
     vd.set_defaults(func=cmd_value_demo)
 

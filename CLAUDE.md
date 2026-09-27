@@ -30,11 +30,12 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
 - `src/nfl_intel/overlay.py` — transparent overlay window + docked stats panel window (PySide6)
 - `src/nfl_intel/bdb.py` — Big Data Bowl 2026 loader (normalised so offense moves +x) and nflverse outcomes
 - `src/nfl_intel/value.py` — pass value: per-receiver features, catch + yards models, live kinematics
+- `src/nfl_intel/coverage.py` — coverage recognition (man/zone + shell) from defender positions, labels from nflverse participation
 - `src/nfl_intel/value_train.py` — trains/evaluates the value models (weeks 1-14 train, 15-18 test)
 - `src/nfl_intel/demo.py` — replays a Big Data Bowl play top-down with the value panel
 - `src/nfl_intel/replay.py` — tracking CSV → top-down replay video
 - `src/nfl_intel/calibrate.py` — click landmarks on a frame to build a homography
 - `src/nfl_intel/evaluate.py` — score a tracking CSV against hand-labeled truth (yards error, recall, ID switches, MOTA)
 - `src/nfl_intel/train.py` — keyframe pre-labeling, dataset YAML, two-stage YOLO fine-tune
-- `src/nfl_intel/cli.py` — `nfl` command: check, windows, overlay, capture, run, replay, eval, calibrate, prelabel, train, value-train, value-demo
+- `src/nfl_intel/cli.py` — `nfl` command: check, windows, overlay, capture, run, replay, eval, calibrate, prelabel, train, value-train, coverage-train, value-demo
 - `docs/PRIOR_ART.md` — what exists elsewhere, how it runs/tests/views, ranked improvements

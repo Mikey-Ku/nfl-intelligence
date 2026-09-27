@@ -21,6 +21,7 @@ from .field import FIELD_LENGTH, FIELD_WIDTH
 
 DEFAULT_ROOT = Path("data/bdb/2026-prediction")
 DEFAULT_OUTCOMES = Path("data/nflverse/play_by_play_2023.parquet")
+DEFAULT_PARTICIPATION = Path("data/nflverse/pbp_participation_2023.parquet")
 HZ = 10.0
 ROLE = {"Passer": "QB", "Targeted Receiver": "REC", "Other Route Runner": "REC", "Defensive Coverage": "DEF"}
 
@@ -43,6 +44,13 @@ class Play:
     yards: float | None = None
     epa: float | None = None
     desc: str = ""
+    # charted per play by NFL Next Gen Stats, published in nflverse participation data
+    pressure: bool | None = None
+    time_to_throw: float | None = None
+    man_zone: str | None = None        # "man" / "zone"
+    coverage: str | None = None        # COVER_1, COVER_3, ...
+    formation: str | None = None       # SHOTGUN, UNDER CENTER, ...
+    pass_rushers: int | None = None
 
     @property
     def receivers(self) -> list[int]:
@@ -53,12 +61,14 @@ class Play:
         return [i for i, r in enumerate(self.roles) if r == "DEF"]
 
 
-def load_outcomes(path: str | Path = DEFAULT_OUTCOMES) -> pl.DataFrame:
+def load_outcomes(path: str | Path = DEFAULT_OUTCOMES, participation: str | Path | None = DEFAULT_PARTICIPATION) -> pl.DataFrame:
+    """Play results from nflverse play-by-play, plus pressure / coverage / formation labels
+    from nflverse participation data when that file is present."""
     pbp = pl.read_parquet(path, columns=[
         "old_game_id", "play_id", "complete_pass", "interception", "yards_gained", "air_yards",
         "epa", "down", "ydstogo", "desc",
     ])
-    return pbp.select(
+    out = pbp.select(
         pl.col("old_game_id").cast(pl.Int64).alias("game_id"),
         pl.col("play_id").cast(pl.Int64),
         (pl.col("complete_pass") == 1).alias("complete"),
@@ -68,6 +78,20 @@ def load_outcomes(path: str | Path = DEFAULT_OUTCOMES) -> pl.DataFrame:
         pl.col("epa").cast(pl.Float64),
         "down", "ydstogo", "desc",
     )
+    labels = ["pressure", "time_to_throw", "man_zone", "coverage", "formation", "pass_rushers"]
+    if participation is not None and Path(participation).exists():
+        part = pl.read_parquet(participation).select(
+            pl.col("old_game_id").cast(pl.Int64).alias("game_id"),
+            pl.col("play_id").cast(pl.Int64),
+            pl.col("was_pressure").alias("pressure"),
+            pl.col("time_to_throw").cast(pl.Float64),
+            pl.col("defense_man_zone_type").replace({"MAN_COVERAGE": "man", "ZONE_COVERAGE": "zone", "": None}).alias("man_zone"),
+            pl.col("defense_coverage_type").replace({"": None}).alias("coverage"),
+            pl.col("offense_formation").alias("formation"),
+            pl.col("number_of_pass_rushers").cast(pl.Int64).alias("pass_rushers"),
+        )
+        return out.join(part, on=["game_id", "play_id"], how="left")
+    return out.with_columns([pl.lit(None).alias(c) for c in labels])
 
 
 def load_week(week: int, root: str | Path = DEFAULT_ROOT) -> pl.DataFrame:
@@ -113,4 +137,10 @@ def iter_plays(week: int, root: str | Path = DEFAULT_ROOT, outcomes: pl.DataFram
             yards=None if o is None or o["yards"] is None else float(o["yards"]),
             epa=None if o is None or o["epa"] is None else float(o["epa"]),
             desc="" if o is None else (o["desc"] or ""),
+            pressure=None if o is None or o["pressure"] is None else bool(o["pressure"]),
+            time_to_throw=None if o is None else o["time_to_throw"],
+            man_zone=None if o is None else o["man_zone"],
+            coverage=None if o is None else o["coverage"],
+            formation=None if o is None else o["formation"],
+            pass_rushers=None if o is None else o["pass_rushers"],
         )
