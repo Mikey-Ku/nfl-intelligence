@@ -34,3 +34,6 @@ manifest.json
 
 # Big Data Bowl downloads (licensed, never committed)
 nfl-big-data-bowl-*/
+
+# Trained models (derived from licensed data)
+models/

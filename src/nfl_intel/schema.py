@@ -16,6 +16,7 @@ CSV_FIELDS = [
     "x1", "y1", "x2", "y2",
     "foot_x_px", "foot_y_px",
     "x_yd", "y_yd",
+    "role", "label",
 ]
 
 
@@ -27,6 +28,8 @@ class TrackedPlayer:
     conf: float
     foot_px: tuple[float, float]           # bottom-centre of the box: where the player stands
     field_yd: tuple[float, float] | None   # (x, y) in yards once calibrated
+    role: str | None = None                # QB / REC / DEF / OL / DL / OFFICIAL once roles are assigned
+    label: str | None = None               # jersey number or name when known
 
 
 @dataclass
@@ -59,6 +62,7 @@ def write_csv(path: str | Path, results: Iterable[FrameResult]) -> int:
                     *(f"{v:.1f}" for v in p.box),
                     _fmt(p.foot_px[0]), _fmt(p.foot_px[1]),
                     _fmt(fx), _fmt(fy),
+                    p.role or "", p.label or "",
                 ])
                 n += 1
     return n
@@ -83,5 +87,7 @@ def read_csv(path: str | Path) -> list[FrameResult]:
                 conf=float(row["conf"]),
                 foot_px=(float(row["foot_x_px"]), float(row["foot_y_px"])),
                 field_yd=field,
+                role=row.get("role") or None,
+                label=row.get("label") or None,
             ))
     return [frames[k] for k in sorted(frames)]

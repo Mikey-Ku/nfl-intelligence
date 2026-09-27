@@ -58,6 +58,24 @@ Useful flags on `overlay` and `run`: `--tracker bytetrack` (faster, fixed camera
 BoT-SORT compensates for camera pans), `--tiles 2` (2×2 overlapping slices for tiny far-sideline
 players), `--weights yolo11s.pt` or your fine-tuned weights.
 
+## The plus/minus (pass value)
+
+For every receiver at every moment, two models estimate what would happen if the ball were
+thrown to him now: the chance it's caught and the yards if it is. The play value is the best
+receiver's expected yards; the plus/minus compares it with a typical play at the same moment
+after the snap.
+
+```bash
+uv run nfl value-train                 # ~1 min: trains on 2023 weeks 1-14, tests on 15-18
+uv run nfl value-demo --week 16        # replays real plays top-down with the live panel
+```
+
+Needs the Big Data Bowl 2026 data in `data/bdb/2026-prediction/` and nflverse play-by-play in
+`data/nflverse/play_by_play_2023.parquet`. On held-out plays the catch model scores AUC 0.76
+and is calibrated within 3 points; throws to the model's top option gained 12.0 yards, second
+option 9.4, third or lower 5.8. The data has no linemen, so pressure isn't modelled, and it
+runs on sensor tracking until video positions are in yards.
+
 ## Fine-tuning the detector
 
 The pretrained COCO `person` class finds players but the detector is the bottleneck on film

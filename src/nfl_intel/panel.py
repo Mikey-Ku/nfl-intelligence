@@ -21,7 +21,6 @@ GOOD = QColor(88, 204, 130)
 BAD = QColor(238, 96, 96)
 LINE = QColor(255, 255, 255, 40)
 FONT = "Helvetica Neue"
-TEAM_NAMES = ("Dark jerseys", "Light jerseys", "Unassigned")
 
 
 def _team_qcolor(team: int | None) -> QColor:
@@ -98,15 +97,24 @@ def render_panel(s: StatsSnapshot, width: int = 300, height: int = 560, dpr: flo
         p.drawText(QRectF(m + 12, y, w - 24, 96), Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextWordWrap,
                    f"Plus/minus is off.\n{why}.")
     else:
+        pct = s.value_unit == "%"
+        d = s.value_delta or 0.0
         p.setPen(TEXT)
         p.setFont(_font(26, bold=True))
-        p.drawText(QPointF(m + 12, y + 40), f"{s.value * 100:.0f}%")
-        d = s.value_delta or 0.0
+        p.drawText(QPointF(m + 12, y + 40), f"{s.value * 100:.0f}%" if pct else f"{s.value:.1f}")
+        if not pct:
+            p.setFont(_font(9))
+            p.setPen(MUTED)
+            p.drawText(QPointF(m + 12, y + 54), "expected yards, best throw")
         p.setPen(GOOD if d >= 0 else BAD)
         p.setFont(_font(14, bold=True))
         p.drawText(QRectF(m, y + 14, w - 12, 30), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-                   f"{d * 100:+.0f}")
-        _sparkline(p, QRectF(m + 12, y + 52, w - 24, 34), s.value_history, 0.0, 1.0, GOOD if d >= 0 else BAD)
+                   f"{d * 100:+.0f}" if pct else f"{d:+.1f}")
+        p.setFont(_font(8.5))
+        p.setPen(MUTED)
+        p.drawText(QRectF(m, y + 40, w - 12, 16), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, s.delta_note)
+        hi = 1.0 if pct else max(10.0, max((v for _, v in s.value_history), default=10.0) * 1.1)
+        _sparkline(p, QRectF(m + 12, y + 60, w - 24, 28), s.value_history, 0.0, hi, GOOD if d >= 0 else BAD)
     y += 96 + 24
 
     # swings
@@ -116,10 +124,11 @@ def render_panel(s: StatsSnapshot, width: int = 300, height: int = 560, dpr: flo
         for sw in s.swings:
             p.setFont(_font(10, bold=True))
             p.setPen(GOOD if sw.delta >= 0 else BAD)
-            p.drawText(QPointF(m, y), f"{sw.delta * 100:+.0f}")
+            p.drawText(QPointF(m, y), f"{sw.delta * 100:+.0f}" if s.value_unit == "%" else f"{sw.delta:+.1f}")
             p.setFont(_font(9.5))
             p.setPen(TEXT)
-            p.drawText(QPointF(m + 38, y), f"{sw.t:.1f}s  {sw.label}".rstrip())
+            text = p.fontMetrics().elidedText(f"{sw.t:.1f}s  {sw.label}".rstrip(), Qt.TextElideMode.ElideRight, int(w - 40))
+            p.drawText(QPointF(m + 40, y), text)
             y += 17
         y += 10
 
@@ -131,7 +140,7 @@ def render_panel(s: StatsSnapshot, width: int = 300, height: int = 560, dpr: flo
     p.drawText(QPointF(m, y), str(s.on_field))
     p.setFont(_font(9))
     p.setPen(MUTED)
-    p.drawText(QPointF(m + 44, y), "of 22 players + officials")
+    p.drawText(QPointF(m + 44, y), s.on_field_note)
     y += 14
     total = max(1, sum(s.team_counts))
     x = m
@@ -149,7 +158,7 @@ def render_panel(s: StatsSnapshot, width: int = 300, height: int = 560, dpr: flo
         p.drawEllipse(QPointF(m + 4, y - 4), 4, 4)
         p.setFont(_font(10))
         p.setPen(TEXT)
-        p.drawText(QPointF(m + 16, y), TEAM_NAMES[i])
+        p.drawText(QPointF(m + 16, y), s.team_names[i])
         p.drawText(QRectF(m, y - 13, w, 18), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, str(n))
         y += 18
     y += 12

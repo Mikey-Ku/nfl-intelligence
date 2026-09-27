@@ -16,6 +16,7 @@ dependencies = [
     "pyobjc-framework-Quartz>=10; sys_platform == 'darwin'",
     "pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'",
     "trackers>=2.6.1",
+    "scikit-learn>=1.9.1",
 ]
 
 [project.scripts]

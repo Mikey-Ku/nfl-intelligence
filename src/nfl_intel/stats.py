@@ -6,8 +6,10 @@ Three tiers, each filling in as the pipeline gains a capability:
   with a model     play value frame by frame, its change since the snap (the plus/minus),
                    and the biggest swings, via `value_fn`
 
-`metrics_fn(result) -> list[(label, value)]` and `value_fn(result) -> float in [0, 1]` are
-plugged in by the caller; both only run on frames that have field coordinates.
+`metrics_fn(result) -> list[(label, value)]` and `value_fn(result) -> float` are plugged in by
+the caller; both only run on frames that have field coordinates. The value is a fraction
+(shown as a percentage) or yards, per `value_unit`. `explain_fn(t0, t1) -> str` names what
+moved the value between two moments of the play.
 """
 
 from __future__ import annotations
@@ -47,6 +49,10 @@ class StatsSnapshot:
     value_history: list[tuple[float, float]] = field(default_factory=list)   # (play clock, value)
     swings: list[Swing] = field(default_factory=list)
     field_bbox: tuple[int, int, int, int] | None = None
+    value_unit: str = "%"                          # "%" (value is 0..1) or "yd"
+    team_names: tuple[str, str, str] = ("Dark jerseys", "Light jerseys", "Unassigned")
+    on_field_note: str = "of 22 players + officials"
+    delta_note: str = "since the snap"
 
 
 class LiveStats:
@@ -59,6 +65,12 @@ class LiveStats:
         value_fn: Callable[[FrameResult], float] | None = None,
         metrics_fn: Callable[[FrameResult], list[tuple[str, str]]] | None = None,
         swing_window: float = 0.5,
+        value_unit: str = "%",
+        min_swing: float | None = None,
+        explain_fn: Callable[[float, float], str] | None = None,
+        team_names: tuple[str, str, str] = ("Dark jerseys", "Light jerseys", "Unassigned"),
+        on_field_note: str = "of 22 players + officials",
+        baseline_fn: Callable[[float], float] | None = None,
     ):
         self.window = window
         self.settle = settle
@@ -67,6 +79,12 @@ class LiveStats:
         self.value_fn = value_fn
         self.metrics_fn = metrics_fn
         self.swing_window = swing_window
+        self.value_unit = value_unit
+        self.min_swing = min_swing if min_swing is not None else (0.01 if value_unit == "%" else 0.5)
+        self.explain_fn = explain_fn
+        self.team_names = team_names
+        self.on_field_note = on_field_note
+        self.baseline_fn = baseline_fn      # typical value at a given play clock; the plus/minus is measured against it
         self.play = 0
         self._fps = 0.0
         self._last_t: float | None = None
@@ -111,13 +129,15 @@ class LiveStats:
             while vals[i][0] - vals[j][0] > self.swing_window:
                 j += 1
             if i != j:
-                changes.append(Swing(t=vals[i][0], delta=vals[i][1] - vals[j][1]))
-        changes.sort(key=lambda s: -abs(s.delta))
+                changes.append((vals[j][0], Swing(t=vals[i][0], delta=vals[i][1] - vals[j][1])))
+        changes.sort(key=lambda c: -abs(c[1].delta))
         picked: list[Swing] = []
-        for s in changes:
-            if abs(s.delta) < 0.01:
+        for t0, s in changes:
+            if abs(s.delta) < self.min_swing:
                 break
             if all(abs(s.t - p.t) > self.swing_window for p in picked):
+                if self.explain_fn is not None:
+                    s.label = self.explain_fn(t0, s.t)
                 picked.append(s)
             if len(picked) == 3:
                 break
@@ -159,7 +179,7 @@ class LiveStats:
             if self.value_fn is not None:
                 value = float(self.value_fn(result))
                 self._values.append((clock, value))
-                delta = value - self._values[0][1]
+                delta = value - (self.baseline_fn(clock) if self.baseline_fn is not None else self._values[0][1])
 
         return StatsSnapshot(
             t=t,
@@ -179,4 +199,8 @@ class LiveStats:
             value_history=list(self._values),
             swings=self._swings() if self._values else [],
             field_bbox=field_bbox,
+            value_unit=self.value_unit,
+            team_names=self.team_names,
+            on_field_note=self.on_field_note,
+            delta_note="vs a typical play" if self.baseline_fn is not None else "since the snap",
         )

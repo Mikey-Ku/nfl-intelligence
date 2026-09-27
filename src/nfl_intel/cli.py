@@ -10,6 +10,8 @@
   nfl calibrate --video clip.mp4     click landmarks to build a homography
   nfl prelabel clips/*.mp4           keyframes + detector boxes as YOLO labels to correct
   nfl train                          fine-tune YOLO on the corrected labels
+  nfl value-train                    train the pass value models on Big Data Bowl throws
+  nfl value-demo --week 16           replay real plays top-down with the live plus/minus
 """
 
 from __future__ import annotations
@@ -342,6 +344,44 @@ def cmd_train(args) -> None:
     print(f"best weights: {best}\nuse them with: nfl overlay --weights {best} ...")
 
 
+def cmd_value_train(args) -> None:
+    from .value_train import train
+
+    train(root=args.data, outcomes_path=args.outcomes, out=args.out, noise=args.noise)
+
+
+def cmd_value_demo(args) -> None:
+    from PySide6.QtGui import QGuiApplication
+
+    from .bdb import iter_plays, load_outcomes
+    from .demo import render, score_plays
+    from .value import PassValueModel
+
+    app = QGuiApplication.instance() or QGuiApplication([])   # the panel renders with Qt
+    model = PassValueModel.load(args.model)
+    outcomes = load_outcomes(args.outcomes)
+    plays = []
+    for play in iter_plays(args.week, args.data, outcomes):
+        if args.play is not None and play.play_id != args.play:
+            continue
+        if args.game is not None and play.game_id != args.game:
+            continue
+        if play.qb < 0 or play.target < 0 or len(play.xy) < 20 or not play.receivers:
+            continue
+        plays.append(play)
+    if not plays:
+        sys.exit("no matching plays")
+    scored = score_plays(plays, model)
+    if args.play is None:
+        scored.sort(key=lambda sp: -sp.swing)          # the plays where the value moved most
+    out_dir = Path(args.out_dir)
+    for sp in scored[: args.count]:
+        name = f"value_w{sp.play.week:02d}_{sp.play.game_id}_{sp.play.play_id}"
+        path = render(sp, out_dir / f"{name}.mp4", shots_dir=out_dir / "shots", model=model)
+        print(f"{path}  value {sp.values[0]:.1f} -> {sp.values[-1]:.1f} yd (range {sp.swing:.1f})  {sp.play.desc[:90]}")
+    del app
+
+
 def cmd_eval(args) -> None:
     from .evaluate import evaluate_files
 
@@ -439,6 +479,24 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--device", default=None)
     tr.add_argument("--name", default="nfl")
     tr.set_defaults(func=cmd_train)
+
+    vt = sub.add_parser("value-train", help="train the pass value models on Big Data Bowl throws")
+    vt.add_argument("--data", default="data/bdb/2026-prediction")
+    vt.add_argument("--outcomes", default="data/nflverse/play_by_play_2023.parquet")
+    vt.add_argument("--out", default="models/pass_value.pkl")
+    vt.add_argument("--noise", type=float, default=0.3, help="position noise (yards) added to a copy of the training data")
+    vt.set_defaults(func=cmd_value_train)
+
+    vd = sub.add_parser("value-demo", help="replay Big Data Bowl plays top-down with the live value panel")
+    vd.add_argument("--week", type=int, default=16, help="2023 week (15-18 were held out of training)")
+    vd.add_argument("--game", type=int, default=None)
+    vd.add_argument("--play", type=int, default=None)
+    vd.add_argument("--count", type=int, default=2, help="how many plays to render (largest value swings first)")
+    vd.add_argument("--data", default="data/bdb/2026-prediction")
+    vd.add_argument("--outcomes", default="data/nflverse/play_by_play_2023.parquet")
+    vd.add_argument("--model", default="models/pass_value.pkl")
+    vd.add_argument("--out-dir", default="outputs/value_demo")
+    vd.set_defaults(func=cmd_value_demo)
 
     ev = sub.add_parser("eval", help="score a tracking CSV against a ground-truth CSV in the same schema")
     ev.add_argument("pred")
