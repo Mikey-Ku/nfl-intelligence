@@ -281,3 +281,104 @@ def test_the_on_field_list_caps_the_receivers():
     s, xy = slots(jumbo, drop=(4, 5, 6))
     told = assign_roles(s, xy, 0, LOS, shotgun=False, linemen=7, eligible=3)
     assert sum(r == "REC" for r in told.values()) == 3
+
+
+def test_painted_numbers_anchor_a_play_without_the_play_by_play():
+    # offense (team 0) going toward -x from the mapping's 40; the numbers put a goal line at 25, 15 yards on
+    x = np.array([41.4, 41.3, 41.5, 44.5, 44.6, 41.0, 39.2, 39.1, 39.0, 36.0, 35.0, 28.0, 28.5, 37.0])
+    team = np.array([0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1])
+    a = anchor_play(x, team, None, end_zone=(25.0, -1), source="painted numbers")
+    assert a.source == "painted numbers and formation" and a.direction == -1 and a.offense_team == 0
+    assert a.los_abs == pytest.approx(95.0, abs=1.0) and a.los_rel == pytest.approx(40.0, abs=1.0)
+    # the same picture with the goal line behind the offense: it has 85 yards to go
+    b = anchor_play(x, team, None, end_zone=(55.0, 1), source="painted numbers")
+    assert b.direction == -1 and b.los_abs == pytest.approx(25.0, abs=1.0)
+    assert anchor_play(x, team, None) is None                     # no goal line, no play-by-play: nothing to go on
+    # with the play-by-play, a goal line far out of the picture still pins the grid at midfield
+    c = anchor_play(x, team, 45.0, end_zone=(-5.0, -1), source="painted numbers")
+    assert c.source == "painted numbers" and c.los_rel == pytest.approx(40.0) and c.los_abs == 65.0
+
+
+def test_an_offense_in_its_huddle_does_not_decide_the_direction():
+    x = np.array([46.0, 46.5, 47.0, 46.2, 47.3, 45.8, 46.8, 39.2, 39.1, 39.0, 36.0, 35.0, 38.0, 38.5, 37.0])
+    team = np.array([0] * 7 + [1] * 8)
+    assert anchor_play(x, team, None, end_zone=(25.0, -1)) is None
+
+
+def test_painted_numbers_are_parsed_and_vote_for_a_goal_line():
+    from nfl_intel.fieldnumbers import FlatField, PaintedNumber, goal_line, parse_number, read_numbers
+
+    assert parse_number("20-") == (20, 1) and parse_number("-10") == (10, -1) and parse_number("◄ 3O") == (30, -1)
+    assert parse_number("50") == (50, 0) and parse_number("-40-") == (40, 0)
+    assert parse_number("HEN BAY") is None and parse_number("60") is None and parse_number("12") is None
+
+    def n(value, x, y, goal):
+        return PaintedNumber(value, x, y, goal, 1.0)
+
+    assert goal_line([n(20, 5.0, 13.0, 1), n(10, 15.0, 13.0, 1)]) == (25.0, 1)
+    assert goal_line([n(10, 10.0, 40.0, 0)]) is None                          # one number, no arrow: either side of the field
+    assert goal_line([n(30, 0.0, 13.0, 0), n(40, 10.0, 40.0, 0)]) == (-30.0, -1)     # two numbers agree without arrows
+    assert goal_line([n(40, 10.0, 13.0, -1)]) == (-30.0, -1)
+    assert goal_line([n(50, 20.0, 13.0, 0)]) == (70.0, 1)
+    assert goal_line([]) is None
+
+    class Text:
+        def __init__(self, text, box, confidence=1.0):
+            self.text, self.box, self.confidence = text, box, confidence
+
+    scale = 24.0
+    flat = FlatField(np.zeros((int(53.33 * scale), int(30 * scale), 3), np.uint8), scale, lo=0.0, hi=30.0, mirrored=False)
+    seen = [Text("20-", (2.6 * scale, 12 * scale, 8.0 * scale, 14 * scale)),           # far row, read from the y = 0 sideline
+            Text("-10", (12.0 * scale, 39 * scale, 17.4 * scale, 41 * scale)),         # near row, read from the other
+            Text("GREEN BAY", (20 * scale, 13 * scale, 25 * scale, 40 * scale)),
+            Text("30", (4 * scale, 25 * scale, 8 * scale, 27 * scale))]                # a jersey in the middle of the field
+    got = read_numbers(flat, reader=lambda img: seen)
+    assert [(g.value, g.x, g.goal) for g in got] == [(20, 5.0, 1), (10, 15.0, 1)]
+    assert goal_line(got) == (25.0, 1)
+
+
+def test_the_flat_field_is_never_a_mirror_image():
+    from nfl_intel.fieldnumbers import flatten
+
+    # a picture of 30 yards of field at 10 px a yard, with an "L" of paint whose foot points toward larger x in the picture
+    img = np.full((534, 300, 3), (60, 120, 60), np.uint8)
+    cv2.rectangle(img, (100, 100), (110, 200), (255, 255, 255), -1)
+    cv2.rectangle(img, (100, 190), (160, 200), (255, 255, 255), -1)
+    rect = (0, 0, 300, 534)
+    straight = np.diag([0.1, 0.1, 1.0])
+    turned = np.array([[-0.1, 0.0, 30.0], [0.0, -0.1, 53.4], [0.0, 0.0, 1.0]])       # the camera on the other sideline
+    backwards = np.array([[-0.1, 0.0, 30.0], [0.0, 0.1, 0.0], [0.0, 0.0, 1.0]])      # x counted the other way: a mirror if drawn naively
+    for H, mirrored in ((straight, False), (turned, False), (backwards, True)):
+        flat = flatten(img, H, rect, scale=10.0)
+        assert flat.mirrored == mirrored and flat.img.shape[1] == 300
+        paint = np.argwhere(flat.img[..., 0] > 200)
+        stem_x = np.median(paint[:, 1])                       # most of the paint is the stem
+        foot_x = paint[:, 1].max() if H is not turned else paint[:, 1].min()
+        # the foot stays on the side of the stem it was painted on (a half turn swaps both, a mirror would swap one)
+        assert (foot_x > stem_x) == (H is not turned)
+        x_at_stem = flat.field_x(stem_x)
+        assert x_at_stem == pytest.approx(10.5 if H is straight else 19.5, abs=0.6)
+    boxes = np.array([[90.0, 90.0, 170.0, 210.0]])
+    assert (flatten(img, straight, rect, boxes, scale=10.0).img[..., 0] > 200).sum() == 0      # players are painted out
+
+
+def test_the_huddle_says_who_has_the_ball():
+    from nfl_intel.anchor import find_huddle
+
+    rng = np.random.default_rng(3)
+    huddle = np.column_stack([47.0 + rng.normal(0, 0.8, 8), 26.0 + rng.normal(0, 0.8, 8)])
+    defense = np.column_stack([np.linspace(30, 39, 9), np.linspace(10, 44, 9)])
+    xy = np.vstack([huddle, defense])
+    team = np.array([0] * 8 + [1] * 9)
+    assert find_huddle(xy, team)[0] == 0 and find_huddle(xy, team)[1] == pytest.approx(47.0, abs=0.8)
+    lined_up = np.column_stack([np.full(8, 41.3), np.linspace(18, 34, 8)])      # a line is wide, not a knot
+    assert find_huddle(np.vstack([lined_up, defense]), team) is None
+
+    # goal line, no play-by-play: both sides are bunched, so depth says nothing, but the huddle was seen
+    x = np.array([41.4, 41.3, 41.5, 41.2, 41.6, 43.0, 47.5, 39.2, 39.1, 39.0, 38.9, 39.3, 37.0, 36.5, 36.0])
+    t = np.array([0] * 7 + [1] * 8)
+    assert anchor_play(x, t, None, end_zone=(33.0, -1)) is None
+    a = anchor_play(x, t, None, end_zone=(33.0, -1), source="painted numbers", huddle=(0, 47.0))
+    assert a.direction == -1 and a.offense_team == 0 and a.source == "painted numbers and huddle"
+    assert a.los_abs == pytest.approx(103.0, abs=1.0)
+    assert anchor_play(x, t, None, end_zone=(33.0, -1), huddle=(1, 47.0)) is None      # a "huddle" on the wrong side of the ball

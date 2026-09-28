@@ -21,8 +21,9 @@ from dataclasses import dataclass, field
 import cv2
 import numpy as np
 
-from .anchor import Anchor, anchor_play, find_end_zone
+from .anchor import Anchor, anchor_play, find_end_zone, find_huddle
 from .field import FIELD_WIDTH
+from .fieldnumbers import flatten, goal_line, read_numbers
 from .fieldtrack import FieldTracker, SnapDetector
 from .personnel import name_players
 from .playinfo import PlayRecord, match_play, read_screen
@@ -192,6 +193,9 @@ class PlayAnalyzer(AnalysisView):
         self.record: PlayRecord | None = self.fixed_record
         self.anchor: Anchor | None = None
         self.end_zone = None
+        self.numbers = None                 # (goal line, side) read off the painted yard numbers
+        self.huddle = None                  # (team, x) of the offense's huddle, if the shot showed one
+        self._number_tries = 0
         self.roles: dict[int, str] = {}
         self.labels: dict[int, str] = {}
         self.history = []
@@ -221,17 +225,32 @@ class PlayAnalyzer(AnalysisView):
             self.last.notes.append(f"could not read the play header: {e}")
 
     def _anchor(self, frame, registrar, field_info, boxes) -> None:
-        if self.record is None or self.record.yards_to_goal is None:
-            return
         slots = [s for s in self.tracker.players if s.hits >= 6 and s.team in (0, 1)]
         if len(slots) < 10:
             return
-        if self.end_zone is None and registrar is not None and registrar.locked and field_info is not None:
+        locked = registrar is not None and registrar.locked
+        if self.numbers is None and locked and self._number_tries < 4:
+            self._number_tries += 1
+            try:
+                flat = flatten(frame, registrar.H, registrar.rect, boxes)
+                self.numbers = goal_line(read_numbers(flat)) if flat is not None else None
+            except Exception as e:                               # reading paint is a help, never a reason to stop
+                self.last.notes.append(f"could not read the painted numbers: {e}")
+        if self.end_zone is None and self.numbers is None and locked and field_info is not None:
             self.end_zone = find_end_zone(frame, registrar.H, registrar.rect, field_info.grass_lab, boxes) or False
+        goal, source = (self.numbers, "painted numbers") if self.numbers else (self.end_zone or None, "end zone")
+        to_goal = self.record.yards_to_goal if self.record is not None else None
         x = np.array([s.xy[0] for s in slots])
         team = np.array([s.team for s in slots])
-        a = anchor_play(x, team, float(self.record.yards_to_goal), self.end_zone or None)
-        if a is not None and (self.anchor is None or a.split_accuracy >= self.anchor.split_accuracy - 0.05):
+        seen = find_huddle(np.array([s.xy for s in slots]), team)
+        if seen is not None:
+            self.huddle = seen
+        a = anchor_play(x, team, None if to_goal is None else float(to_goal), goal, source, self.huddle)
+        if to_goal is None:
+            # with only the formation to say which way the offense is going, the latest look is
+            # the one that counts: a guess made while the offense walked up must not outlive it
+            self.anchor = a
+        elif a is not None and (self.anchor is None or a.split_accuracy >= self.anchor.split_accuracy - 0.05):
             self.anchor = a
 
     def _read_look(self) -> None:

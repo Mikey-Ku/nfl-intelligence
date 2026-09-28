@@ -99,9 +99,10 @@ On a sideline-angle shot the pipeline works the play out on its own, in this ord
    captured window with Apple's on-device text recognition and matched to its row in the
    nflverse play-by-play (`data/nflverse/play_by_play_<season>.parquet`). That row gives the
    yard line, who has the ball, shotgun or not, and afterwards what happened.
-2. **Where on the field.** The two teams face each other across the line of scrimmage, the
-   painted end zone says which way the offense is going, and the yard line from step 1 pins
-   the mapping to the real field: offense moving +x, goal line at x = 110.
+2. **Where on the field.** The field is laid flat through the mapping and the big painted
+   yard numbers are read off it; each number's arrow points at the nearer goal line. With
+   the yard line from step 1 that pins the mapping to the real field: offense moving +x,
+   goal line at x = 110. (No numbers in view: the painted end zone does the same job.)
 3. **Tracking in yards.** Players are followed on the field rather than in the picture, so a
    player keeps his identity when the image tracker hands him a new number.
 4. **The snap and the roles.** The snap is where a still formation starts moving. Just before
@@ -114,6 +115,11 @@ On a sideline-angle shot the pipeline works the play out on its own, in this ord
    doubt, names on the receivers (a lone back, a lone tight end, the man the ball went to).
 
 The line of scrimmage and the line to gain are drawn on the video the way television does.
+
+**Without the page around the video** (full screen, or another source) there is no header
+to read. `--no-play-lookup` runs that way on purpose: the painted numbers give the yard
+lines, the huddle or the formation says who has the ball, and the value still runs. What is
+lost is everything the play-by-play knows: down and distance, personnel, names, the result.
 
 On the saved clip (Packers-Falcons, 2026 week 3) all three plays were matched and both
 sideline shots anchored from the end zone. On Love's touchdown to Golden the quarterback, all

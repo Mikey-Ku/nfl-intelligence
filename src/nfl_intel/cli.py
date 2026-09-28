@@ -60,6 +60,8 @@ def _add_model_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--calib", help="calibration JSON from `nfl calibrate`")
     p.add_argument("--no-analysis", action="store_true",
                    help="track only: no play lookup, roles, real yard lines or pass value")
+    p.add_argument("--no-play-lookup", action="store_true",
+                   help="don't read NFL Pro's header or look the play up; yard lines come from the painted numbers alone")
     p.add_argument("--value-model", default=None, help="pass value model (default models/pass_value.pkl)")
     p.add_argument("--coverage-model", default=None, help="coverage model (default models/coverage.pkl)")
 
@@ -103,7 +105,8 @@ def _build_live(args, fps: float):
     value, coverage = load_models(args.value_model, args.coverage_model)
     if value is None:
         print("no pass value model found: the panel shows formations only (train one with `nfl value-train`)")
-    analyzer = PlayAnalyzer(value, coverage, score_every=2)       # the value moves slowly; every other frame is plenty
+    analyzer = PlayAnalyzer(value, coverage, score_every=2,       # the value moves slowly; every other frame is plenty
+                            read_plays=not getattr(args, "no_play_lookup", False))
     return AnalyzedTracker(tracker, analyzer), live_stats(analyzer, value)
 
 
@@ -218,8 +221,8 @@ def _narrate(tracker, res, told: set) -> None:
         if listed is not None and listed.personnel:
             say("personnel", f"on the field: {listed.offense_team} in {listed.personnel}; {listed.defense_team} in {listed.package}")
     if a.anchor is not None:
-        say("anchor", f"line of scrimmage on the {a.record.header.side or ''} {a.record.header.yard}".replace("  ", " ")
-            + f", settled by the {a.anchor.source}")
+        where = a.anchor.yard_name(a.anchor.los_rel) or "goal line"
+        say("anchor", f"line of scrimmage on the {where}, {110 - a.anchor.los_abs:.0f} from the goal line, settled by the {a.anchor.source}")
     if a.look[0] and a.look[1] and a.snap_t is None:
         say("look", f"lined up: {a.look[0]} | {a.look[1]}")
     if a.snap_t is not None:

@@ -83,6 +83,29 @@ def split_teams(x: np.ndarray, team: np.ndarray) -> tuple[float, int, float] | N
     return float(cut), int(low), right / len(x)
 
 
+def find_huddle(xy: np.ndarray, team: np.ndarray, radius: float = 2.6, need: int = 5) -> tuple[int, float] | None:
+    """A team standing in a knot is the offense in its huddle. Returns (team, x of the huddle).
+
+    No formation packs five men of one side into a circle five yards across with the other
+    side nowhere near: a line is a dozen yards wide.
+    """
+    xy, team = np.asarray(xy, dtype=np.float64).reshape(-1, 2), np.asarray(team)
+    best = None
+    for t in (0, 1):
+        mine, theirs = xy[team == t], xy[team == 1 - t]
+        if len(mine) < need or len(theirs) < 3:
+            continue
+        centre = np.median(mine, axis=0)
+        inside = np.linalg.norm(mine - centre, axis=1) <= radius
+        if inside.sum() < need or inside.sum() < 0.6 * len(mine):
+            continue
+        if (np.linalg.norm(theirs - centre, axis=1) <= radius + 1.0).any():
+            continue
+        if best is None or inside.sum() > best[2]:
+            best = (t, float(centre[0]), int(inside.sum()))
+    return None if best is None else (best[0], best[1])
+
+
 def find_end_zone(frame: np.ndarray, H: np.ndarray, rect, grass_lab: np.ndarray, boxes: np.ndarray | None = None,
                   min_inside: float = 0.12, max_outside: float = 0.05) -> tuple[float, int] | None:
     """The goal line and which way the end zone lies from it, in relative yards.
@@ -141,11 +164,16 @@ def find_end_zone(frame: np.ndarray, H: np.ndarray, rect, grass_lab: np.ndarray,
     return None if best is None else (best[1], best[2])
 
 
-def anchor_play(x_rel: np.ndarray, team: np.ndarray, yards_to_goal: float, end_zone: tuple[float, int] | None = None,
-                depth: np.ndarray | None = None) -> Anchor | None:
+def anchor_play(x_rel: np.ndarray, team: np.ndarray, yards_to_goal: float | None, end_zone: tuple[float, int] | None = None,
+                source: str = "end zone", huddle: tuple[int, float] | None = None) -> Anchor | None:
     """Fix the line of scrimmage and the offense's direction for one play.
 
-    `x_rel`, `team`: the players before the snap. `end_zone`: from find_end_zone, if any.
+    `x_rel`, `team`: the players before the snap. `end_zone`: where a goal line is in the
+    mapping's yards and which way the field ends there, from the painted end zone or the
+    painted numbers (`source` says which). `yards_to_goal` comes from the play-by-play; without
+    it the goal line and the formation have to do, and the line of scrimmage is only as good
+    as the gap between the two teams. `huddle`, from find_huddle earlier in the shot, says who
+    has the ball and which side they came from.
     """
     split = split_teams(x_rel, team)
     if split is None:
@@ -154,31 +182,51 @@ def anchor_play(x_rel: np.ndarray, team: np.ndarray, yards_to_goal: float, end_z
     if accuracy < 0.7:
         return None
     x_rel, team = np.asarray(x_rel, dtype=np.float64), np.asarray(team)
-    direction, source = None, ""
-    if end_zone is not None:
+    direction, settled = None, ""
+    if end_zone is not None and yards_to_goal is not None:
         goal, side = end_zone
         attacking = abs(goal - (los_est + side * yards_to_goal))
         backed_up = abs(goal - (los_est - side * (100.0 - yards_to_goal)))
         if min(attacking, backed_up) <= 3.5:
             direction = side if attacking <= backed_up else -side
-            source = "end zone"
+            settled = source
+    if direction is None and huddle is not None and abs(huddle[1] - los_est) >= 1.0:
+        direction = 1 if huddle[1] < los_est else -1            # they walk from the huddle up to the ball
+        if (low_team == huddle[0]) != (direction > 0):
+            return None                                           # the huddle and the split disagree about who is where
+        settled = "huddle"
     if direction is None:
-        # the defense plays deeper off the ball than the offense does
+        # the defense plays deeper off the ball than the offense does, once both are lined up:
+        # an offense still in its huddle is the deeper of the two
         deep = {}
         for t in (0, 1):
             d = np.sort(np.abs(x_rel[team == t] - los_est))
+            if (d <= 3.0).sum() < 3:
+                return None
             deep[t] = float(d[-2]) if len(d) >= 2 else 0.0          # second deepest: one stray official can't decide it
         if abs(deep[0] - deep[1]) < 2.0:
             return None
         defense = 0 if deep[0] > deep[1] else 1
         offense_low = low_team != defense
         direction = 1 if offense_low else -1
-        source = "formation"
+        settled = "formation"
     offense_team = low_team if direction > 0 else 1 - low_team
+    if yards_to_goal is None:
+        if end_zone is None:
+            return None                                  # nothing says where on the field this is
+        goal, side = end_zone
+        gap = abs(goal - los_est)
+        yards_to_goal = gap if direction == side else 100.0 - gap
+        if not 0.5 <= yards_to_goal <= 99.5:
+            return None
+        return Anchor(los_rel=float(los_est), direction=int(direction), los_abs=110.0 - float(yards_to_goal),
+                      offense_team=int(offense_team), source=f"{source} and {settled}", split_accuracy=float(accuracy))
     # the goal line is a yard line, so the line of scrimmage sits a known distance from one
     goal = 5.0 * np.round((los_est + direction * yards_to_goal) / 5.0)
+    if end_zone is not None and settled == source:
+        goal = end_zone[0] if direction == end_zone[1] else end_zone[0] - end_zone[1] * 100.0
     los_rel = goal - direction * yards_to_goal
     if abs(los_rel - los_est) > 2.6:
         los_rel = los_est
     return Anchor(los_rel=float(los_rel), direction=int(direction), los_abs=110.0 - float(yards_to_goal),
-                  offense_team=int(offense_team), source=source, split_accuracy=float(accuracy))
+                  offense_team=int(offense_team), source=settled, split_accuracy=float(accuracy))
