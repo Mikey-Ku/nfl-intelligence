@@ -208,8 +208,10 @@ class WindowSource:
 
 
 class VideoSource:
-    def __init__(self, path: str):
+    def __init__(self, path: str, start: float = 0.0, stop: float | None = None):
+        """`start` and `stop` are seconds into the clip (its real capture times when it has them)."""
         self.path = path
+        self.start, self.stop = start, stop
         self.cap = cv2.VideoCapture(path)
         if not self.cap.isOpened():
             raise FileNotFoundError(f"could not open video {path}")
@@ -243,14 +245,22 @@ class VideoSource:
             raise ValueError(f"could not read frame {index} of {self.path}")
         return frame
 
+    def _time(self, idx: int) -> float:
+        return self.times[idx] if self.times is not None and idx < len(self.times) else idx / self.fps
+
     def __iter__(self) -> Iterator[tuple[int, float, np.ndarray]]:
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         idx = 0
+        if self.start > 0:
+            while idx < self.frame_count - 1 and self._time(idx) < self.start - 1e-6:
+                idx += 1
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
         while True:
             ok, frame = self.cap.read()
             if not ok:
                 break
-            t = self.times[idx] if self.times is not None and idx < len(self.times) else idx / self.fps
+            t = self._time(idx)
+            if self.stop is not None and t > self.stop + 1e-6:
+                break
             yield idx, t, frame
             idx += 1
 

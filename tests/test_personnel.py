@@ -50,6 +50,13 @@ def test_the_list_is_read_with_its_misreads_mended():
     assert got.package == "Nickel, 2-4-5"
 
 
+def test_lookalike_letters_are_read_as_what_they_are():
+    from nfl_intel.personnel import _position
+
+    assert _position("СВ") == "CB" and _position("ТЕ") == "TE" and _position("cb") == "CB"      # the first two are Cyrillic
+    assert _position("Myles") is None
+
+
 def test_no_list_on_screen():
     assert parse_on_field([_at(10, 10, "Q4 08:21"), _at(10, 40, "GB ON ATL 15")]) is None
     assert OnField().personnel == "" and OnField().package == ""

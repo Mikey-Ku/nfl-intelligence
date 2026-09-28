@@ -195,6 +195,7 @@ def test_video_source_uses_the_real_capture_times(tmp_path):
     src = VideoSource(str(path))
     assert [round(t, 2) for _, t, _ in src] == [0.0, 0.05, 0.1, 0.15, 0.2]
     assert src.fps == pytest.approx(20.0)
+    assert [i for i, _, _ in VideoSource(str(path), start=0.1, stop=0.15)] == [2, 3]
 
 
 def test_typical_value_depends_on_where_the_play_starts():
@@ -282,3 +283,16 @@ def test_the_rush_is_shown_beside_the_value_and_kept_in_the_play_log():
     json.dumps(log)                                                # plain values only
     an.reset()
     assert an.plays and an.plays[-1]["play"] == log["play"]
+
+
+def test_kicks_are_left_alone():
+    frames, _ = film()
+    an = PlayAnalyzer(SeparationModel(), record=_record("punt"))
+    out = _run(frames, an)
+    assert an.anchor is None and an.snap_t is None and all(o.value is None for o in out)
+    assert an.value_note().startswith("Punt.")
+    an.reset()
+    assert an.plays == []
+    flagged = PlayAnalyzer(SeparationModel(), record=_record("no_play"))
+    _run(frames[:30], flagged)
+    assert flagged.value_note().startswith("No play (penalty).")

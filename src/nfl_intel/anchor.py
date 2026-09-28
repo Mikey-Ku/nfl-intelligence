@@ -184,9 +184,11 @@ def anchor_play(x_rel: np.ndarray, team: np.ndarray, yards_to_goal: float | None
     x_rel, team = np.asarray(x_rel, dtype=np.float64), np.asarray(team)
     direction, settled = None, ""
     if end_zone is not None and yards_to_goal is not None:
+        # the goal line lies `side` of the ball: the one being attacked if it is yards_to_goal
+        # away, the offense's own if it is the rest of the hundred yards away
         goal, side = end_zone
         attacking = abs(goal - (los_est + side * yards_to_goal))
-        backed_up = abs(goal - (los_est - side * (100.0 - yards_to_goal)))
+        backed_up = abs(goal - (los_est + side * (100.0 - yards_to_goal)))
         if min(attacking, backed_up) <= 3.5:
             direction = side if attacking <= backed_up else -side
             settled = source

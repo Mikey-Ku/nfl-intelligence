@@ -62,6 +62,8 @@ def _add_model_args(p: argparse.ArgumentParser) -> None:
                    help="track only: no play lookup, roles, real yard lines or pass value")
     p.add_argument("--no-play-lookup", action="store_true",
                    help="don't read NFL Pro's header or look the play up; yard lines come from the painted numbers alone")
+    p.add_argument("--no-hints", action="store_true",
+                   help="name roles from the formation alone, without the play's charting or the on-field list (for marking them)")
     p.add_argument("--value-model", default=None, help="pass value model (default models/pass_value.pkl)")
     p.add_argument("--coverage-model", default=None, help="coverage model (default models/coverage.pkl)")
 
@@ -106,7 +108,7 @@ def _build_live(args, fps: float):
     if value is None:
         print("no pass value model found: the panel shows formations only (train one with `nfl value-train`)")
     analyzer = PlayAnalyzer(value, coverage, score_every=2,       # the value moves slowly; every other frame is plenty
-                            read_plays=not getattr(args, "no_play_lookup", False))
+                            read_plays=not getattr(args, "no_play_lookup", False), use_hints=not getattr(args, "no_hints", False))
     return AnalyzedTracker(tracker, analyzer), live_stats(analyzer, value)
 
 
@@ -370,7 +372,7 @@ def cmd_run(args) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     tracker = None
     for path in args.videos:
-        src = VideoSource(path)
+        src = VideoSource(path, start=args.start, stop=args.stop)
         if tracker is not None:
             tracker.reset()
         tracker, stats = _build_live(args, fps=src.fps) if tracker is None else (tracker, _build_live_stats(tracker))
@@ -599,6 +601,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--shots", help="save test images (annotated field + stats panel) into this folder")
     r.add_argument("--shot-every", type=float, default=2.0, help="seconds between test images")
     r.add_argument("--topdown", action="store_true", help="also write a top-down replay with the stats panel for every shot that anchors")
+    r.add_argument("--start", type=float, default=0.0, help="begin this many seconds into the clip")
+    r.add_argument("--stop", type=float, default=None, help="end this many seconds into the clip")
     r.set_defaults(func=cmd_run)
 
     rp = sub.add_parser("replay", help="render a top-down replay from a tracking CSV")

@@ -30,6 +30,7 @@ class PlayHeader:
     description: str = ""
     season: int | None = None
     week: int | None = None
+    game: tuple | None = None                # (away, home) when the page is filtered to one game
 
     @property
     def complete(self) -> bool:
@@ -77,6 +78,19 @@ def parse_header(lines: list[str]) -> PlayHeader:
             if w:
                 h.week = int(w.group(1))
             continue
+        # full screen hides the address bar; the page's own filter chips say the same thing
+        m = re.fullmatch(r"SEASON:?\s*(\d{4})", up)
+        if m and h.season is None:
+            h.season = int(m.group(1))
+            continue
+        m = re.fullmatch(r"WEEK:?\s*(\d{1,2})", up)
+        if m and h.week is None:
+            h.week = int(m.group(1))
+            continue
+        m = re.fullmatch(r"GAME:?\s*([A-Z]{2,3})\s+(?:AT|@|VS\.?)\s+([A-Z]{2,3})", up)
+        if m and not h.game:
+            h.game = (m.group(1), m.group(2))
+            continue
         if re.match(r"\(\d{1,2}:\d{2}\)", text) and not h.description:
             h.description = text
             continue
@@ -102,7 +116,9 @@ def read_screen(frame: np.ndarray, downscale: int = 2):
         # the list again at full size: its one-letter positions (C, G, T, S) are too small at half size
         x0 = max(0, int(head.box[0] * downscale) - 40)
         y0 = max(0, int(head.box[1] * downscale) - 20)
-        on_field = parse_on_field([b for b in read_text(np.ascontiguousarray(frame[y0:, x0:])) if b.confidence >= 0.3])
+        # ...and half as large again: two-letter positions next to a long name otherwise go unread now and then
+        crop = cv2.resize(frame[y0:, x0:], None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
+        on_field = parse_on_field([b for b in read_text(crop) if b.confidence >= 0.3])
     return parse_header([b.text for b in boxes]), on_field
 
 
@@ -122,6 +138,12 @@ def load_play_by_play(season: int, root: str | Path = NFLVERSE):
             "receiver_player_name", "rusher_player_name", "sack", "interception"]
     df = pl.read_parquet(path)
     return df.select([c for c in cols if c in df.columns])
+
+
+def latest_season(root: str | Path = NFLVERSE) -> int | None:
+    """The newest season with a play-by-play file on disk."""
+    years = [int(m.group(1)) for f in Path(root).glob("play_by_play_*.parquet") if (m := re.search(r"(\d{4})", f.name))]
+    return max(years) if years else None
 
 
 def load_charting(season: int, root: str | Path = NFLVERSE):
@@ -174,6 +196,11 @@ class PlayRecord:
         """Where the ball was spotted, from the charting: "L", "M" or "R" from the offense's side."""
         mark = self.charted.get("starting_hash")
         return mark if mark in ("L", "M", "R") else None
+
+    @property
+    def from_scrimmage(self) -> bool:
+        """A run or a pass. Kicks, kneel-downs, spikes and plays wiped out by a flag are not analysed."""
+        return not self.matched or self.play_type in ("pass", "run")
 
     @property
     def is_pass(self) -> bool:
@@ -231,8 +258,11 @@ def match_play(header: PlayHeader, pbp=None, root: str | Path = NFLVERSE) -> Pla
     if not header.complete:
         rec.notes.append("could not read the play header")
         return rec
-    if pbp is None and header.season is not None:
-        pbp = _cached("pbp", header.season, root)
+    if pbp is None:
+        if header.season is None:
+            header.season = latest_season(root)            # nothing on screen says: assume the newest film we have plays for
+        if header.season is not None:
+            pbp = _cached("pbp", header.season, root)
     if pbp is None:
         rec.notes.append("no play-by-play file for this season")
         return rec
@@ -245,6 +275,8 @@ def match_play(header: PlayHeader, pbp=None, root: str | Path = NFLVERSE) -> Pla
     ).filter(pl.col("_secs") == secs)
     if header.week is not None:
         df = df.filter(pl.col("week") == header.week)
+    if header.game is not None and "defteam" in df.columns:
+        df = df.filter(pl.col("defteam").is_in(list(header.game)))
     if header.down is not None:
         df = df.filter(pl.col("down") == header.down)
     rec.candidates = df.height

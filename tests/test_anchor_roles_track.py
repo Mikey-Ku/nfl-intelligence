@@ -33,6 +33,11 @@ def test_anchor_by_end_zone_and_by_formation_agree():
     # backed up on its own 15 instead: the same end zone is behind the offense
     backed = anchor_play(30.0 - (x - 40.0), team, 85.0, end_zone=(15.0, -1))
     assert backed.direction == 1 and backed.los_abs == 25.0 and backed.los_rel == pytest.approx(30.0)
+    assert backed.source == "end zone"                           # settled by the goal line, not left to the formation
+    # the offense on its own 24 with its goal line 24 yards behind it, as the painted numbers give it
+    deep = anchor_play(np.array([13.0, 12.8, 12.9, 9.5, 12.5, 13.1, 15.2, 15.0, 15.1, 15.3, 19.0, 21.0, 27.0, 28.0]), team, 76.0,
+                       end_zone=(-10.0, -1), source="painted numbers")
+    assert deep.source == "painted numbers" and deep.direction == 1 and deep.los_rel == pytest.approx(14.0) and deep.los_abs == 34.0
 
 
 def test_anchor_maps_to_the_real_field_without_mirroring():

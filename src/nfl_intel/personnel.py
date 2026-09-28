@@ -78,8 +78,11 @@ class OnField:
         return [p for p in self.offense if p.position in positions]
 
 
+LOOKALIKES = str.maketrans("АВЕКМНОРСТХ", "ABEKMHOPCTX")      # Cyrillic capitals the reader sometimes returns for Latin ones
+
+
 def _position(text: str) -> str | None:
-    t = text.strip().upper()
+    t = text.strip().upper().translate(LOOKALIKES)
     t = MISREAD.get(t, t)
     return t if t in KNOWN else None
 

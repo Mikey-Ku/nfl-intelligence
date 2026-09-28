@@ -100,6 +100,9 @@ class AnalysisView:
         a = self.last
         if a.value is not None:
             return ""
+        if a.record is not None and not a.record.from_scrimmage:
+            kind = {"no_play": "No play (penalty)", "qb_kneel": "Kneel-down", "qb_spike": "Spike"}.get(a.record.play_type, a.record.play_type.replace("_", " ").capitalize())
+            return f"{kind}.\nOnly runs and passes are analysed."
         if not a.mapped and not a.replayed:
             return "Field not mapped from this view.\nThe sideline angle maps; the end-zone angle doesn't yet."
         if a.record is not None and a.record.matched and not a.record.is_pass:
@@ -196,8 +199,9 @@ class AnalysisView:
 
 class PlayAnalyzer(AnalysisView):
     def __init__(self, value_model: PassValueModel | None = None, coverage_model=None, read_plays: bool = True,
-                 record: PlayRecord | None = None, score_every: int = 1):
+                 record: PlayRecord | None = None, score_every: int = 1, use_hints: bool = True):
         super().__init__()
+        self.use_hints = use_hints          # False: roles from the formation alone, to mark them against the charting
         self.value_model = value_model
         self.coverage_model = coverage_model
         self.has_model = value_model is not None
@@ -218,6 +222,8 @@ class PlayAnalyzer(AnalysisView):
         rec = getattr(self, "record", None)
         if rec is None or not rec.header.complete or getattr(self, "snap_t", None) is None or self._shot_t0 is None:
             return
+        if not rec.from_scrimmage:
+            return
         self.memory[rec.header.key] = PlayMemory(self.snap_t - self._shot_t0, list(self.history), self.look, self._held[1],
                                                  self.anchor.offense_team if self.anchor is not None else None)
         self.plays.append(self.summary())
@@ -236,13 +242,15 @@ class PlayAnalyzer(AnalysisView):
             if rec.matched:
                 out.update({"game_id": rec.game_id, "play_id": rec.play_id, "play_type": rec.play_type, "result": rec.outcome,
                             "yards": rec.yards_gained, "epa": None if rec.epa is None else round(float(rec.epa), 2),
-                            "charted": rec.charted_look})
+                            "charted": rec.charted_look, "charting": dict(rec.charted), "shotgun": rec.shotgun,
+                            "target": rec.receiver, "air_yards": rec.air_yards, "pass_location": rec.pass_location})
             if rec.on_field is not None:
                 out.update({"personnel": rec.on_field.personnel, "package": rec.on_field.package})
         if a is not None:
             out.update({"yards_to_goal": round(110.0 - a.los_abs, 1), "anchored_by": a.source})
         roles = list(self.roles.values())
         out["found"] = {r: roles.count(r) for r in ("QB", "REC", "OL", "DL", "DEF") if roles.count(r)}
+        out["hints_used"] = self.use_hints
         out["names"] = sorted(v for v in self.labels.values() if v != "QB" and not (v[0] in "RD" and v[1:].isdigit()))
         if self.history:
             to_goal = None if a is None else 110.0 - a.los_abs
@@ -342,18 +350,18 @@ class PlayAnalyzer(AnalysisView):
 
     @property
     def _shotgun(self) -> bool | None:
-        return self.record.shotgun if (self.record is not None and self.record.matched) else None
+        return self.record.shotgun if (self.use_hints and self.record is not None and self.record.matched) else None
 
     @property
     def _hash(self) -> str | None:
-        return self.record.hash_mark if (self.record is not None and self.record.matched) else None
+        return self.record.hash_mark if (self.use_hints and self.record is not None and self.record.matched) else None
 
     @property
     def _listed(self) -> tuple[int | None, int | None]:
         """How many linemen and how many eligible receivers the on-field list shows."""
         from .personnel import BACKS, LINEMEN
 
-        listed = self.record.on_field if self.record is not None else None
+        listed = self.record.on_field if (self.use_hints and self.record is not None) else None
         if listed is None or len(listed.offense) != 11:
             return None, None
         return listed.count(listed.offense, LINEMEN), listed.count(listed.offense, BACKS | {"TE", "WR"})
@@ -510,6 +518,9 @@ class PlayAnalyzer(AnalysisView):
         if self._mapped_frames in (1, 8, 20):
             self._read_play(frame)
             out.record = self.record
+        if self.record is not None and not self.record.from_scrimmage:
+            self.last = out                                      # a kick, a kneel-down, a flag before the snap
+            return out
         boxes = np.array([p.box for p in result.players]) if result.players else None
         xy_rel = np.array([p.field_yd for p in mapped])
         slots = self.tracker.update(result.t, xy_rel, [p.team for p in mapped], [p.track_id for p in mapped])

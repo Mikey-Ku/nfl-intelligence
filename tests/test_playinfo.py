@@ -63,3 +63,25 @@ def test_charted_look():
     rec = PlayRecord(PlayHeader(), matched=True, play_type="pass",
                      charted={"qb_location": "S", "n_defense_box": 5, "n_pass_rushers": 4})
     assert rec.charted_look == "Shotgun, 5 in the box, 4 rush"
+
+
+def test_the_filter_chips_stand_in_for_the_address_bar():
+    h = parse_header(["180 plays matching your criteria", "Season: 2026", "Season Type: REG", "Week: 3", "Game: CAR at CLE",
+                      "Q1 14:56", "1ST & 10", "CAR ON CAR 29", "(14:56) C.Hubbard right tackle to CAR 29 for no gain (M.Graham)."])
+    assert (h.season, h.week, h.game) == (2026, 3, ("CAR", "CLE"))
+    assert (h.quarter, h.clock, h.down, h.distance, h.offense, h.side, h.yard) == (1, "14:56", 1, 10, "CAR", "CAR", 29)
+    assert h.yards_to_goal == 71
+
+
+def test_the_newest_season_on_disk_is_assumed_when_the_screen_does_not_say(tmp_path):
+    from nfl_intel.playinfo import _TABLES, latest_season
+
+    assert latest_season(tmp_path) is None
+    _table().write_parquet(tmp_path / "play_by_play_2025.parquet")
+    _table().write_parquet(tmp_path / "play_by_play_2026.parquet")
+    assert latest_season(tmp_path) == 2026
+    _TABLES.clear()
+    h = PlayHeader(quarter=4, clock="08:21", down=2, distance=7, offense="GB", side="ATL", yard=15, game=("ATL", "GB"))
+    rec = match_play(h, root=tmp_path)
+    assert rec.matched and h.season == 2026 and rec.play_id == 100
+    _TABLES.clear()
