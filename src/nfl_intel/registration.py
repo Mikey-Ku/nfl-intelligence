@@ -956,6 +956,7 @@ class FieldRegistrar:
         self._field_seen = None
         self._retry = False
         self._wait = self.retry_every
+        self.lock_id = getattr(self, "lock_id", 0)
 
     @property
     def locked(self) -> bool:
@@ -1033,6 +1034,7 @@ class FieldRegistrar:
                     self.H, self.camera, self.last = reg.H, reg.camera, reg
                     self.age = 0
                     self.full_ok += 1
+                    self.lock_id += 1                           # a new lock measures x from a new zero
                     self._wait = self.retry_every
                 else:
                     self._wait = min(self._wait * 2, 64)       # a look that failed is tried again, but less and less often
@@ -1047,9 +1049,14 @@ class FieldRegistrar:
 
 # ------------------------------------------------------------------ drawing
 
-def draw_grid(frame: np.ndarray, H: np.ndarray, rect, color=(0, 255, 255)) -> np.ndarray:
+def draw_grid(frame: np.ndarray, H: np.ndarray, rect, color=(0, 255, 255), label=None, marks=()) -> np.ndarray:
     """Draw the field model back onto the frame through the mapping: yard lines every 5 yards,
-    the hash rows, both sidelines. If the mapping is right they sit on the paint."""
+    the hash rows, both sidelines. If the mapping is right they sit on the paint.
+
+    `label(x)` names the yard line at x (default: the mapping's own number). `marks` are extra
+    lines across the field, as (x, colour) in the mapping's yards: the line of scrimmage, the
+    line to gain.
+    """
     out = frame.copy()
     Hinv = np.linalg.inv(H)
     x1, y1, x2, y2 = rect
@@ -1074,7 +1081,10 @@ def draw_grid(frame: np.ndarray, H: np.ndarray, rect, color=(0, 255, 255)) -> np
         poly([(5.0 * k, y) for y in ys], color, 2)
         mid = to_px([(5.0 * k, FIELD_WIDTH / 2)])[0]
         if np.all(np.isfinite(mid)) and x1 <= mid[0] < x2 and y1 <= mid[1] < y2:
-            cv2.putText(out, str(5 * k), (int(mid[0]) + 6, int(mid[1]) - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2, cv2.LINE_AA)
+            text = str(5 * k) if label is None else label(5.0 * k)
+            cv2.putText(out, text, (int(mid[0]) + 6, int(mid[1]) - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2, cv2.LINE_AA)
+    for x, col in marks:
+        poly([(x, y) for y in ys], col, 3)
     xs = np.linspace(5.0 * lo, 5.0 * hi, 60)
     for y, col in ((0.0, (0, 140, 255)), (FIELD_WIDTH, (0, 140, 255)), (HASH_NEAR, (255, 200, 0)), (HASH_FAR, (255, 200, 0))):
         poly([(x, y) for x in xs], col, 2)

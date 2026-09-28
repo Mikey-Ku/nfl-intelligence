@@ -217,6 +217,24 @@ class VideoSource:
         self.size = (int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         self.frame_count = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.scale = 1.0
+        self.times = self._capture_times(path)
+        if self.times is not None and len(self.times) > 1:
+            self.fps = (len(self.times) - 1) / (self.times[-1] - self.times[0])       # the rate it was really captured at
+
+    @staticmethod
+    def _capture_times(path: str) -> list[float] | None:
+        """`nfl capture` writes when each frame was really grabbed next to the clip; the file
+        itself plays at a fixed rate, which would stretch or squeeze every speed."""
+        from pathlib import Path
+
+        side = Path(path).with_suffix(".times.csv")
+        if not side.exists():
+            return None
+        try:
+            times = [float(line.split(",")[1]) for line in side.read_text().splitlines()[1:] if line.strip()]
+        except (ValueError, IndexError):
+            return None
+        return [t - times[0] for t in times] if times else None
 
     def read_frame(self, index: int) -> np.ndarray:
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, index)
@@ -232,7 +250,8 @@ class VideoSource:
             ok, frame = self.cap.read()
             if not ok:
                 break
-            yield idx, idx / self.fps, frame
+            t = self.times[idx] if self.times is not None and idx < len(self.times) else idx / self.fps
+            yield idx, t, frame
             idx += 1
 
     def release(self) -> None:

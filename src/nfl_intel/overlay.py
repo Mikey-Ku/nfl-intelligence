@@ -17,7 +17,7 @@ from PySide6.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
 from .capture import Region, ScreenSource
-from .draw import minimap, team_color
+from .draw import minimap, player_label, team_color
 from .field import draw_field
 from .panel import render_panel
 from .schema import FrameResult
@@ -110,10 +110,7 @@ class OverlayWindow(QWidget):
             painter.setPen(QPen(QColor(r, g, b, 230), 2))
             x1, y1, x2, y2 = (v * s for v in p.box)
             painter.drawRect(int(x1), int(y1), int(x2 - x1), int(y2 - y1))
-            label = str(p.track_id)
-            if p.field_yd is not None:
-                label += f" {p.field_yd[0]:.0f},{p.field_yd[1]:.0f}"
-            painter.drawText(int(x1), int(y1) - 3, label)
+            painter.drawText(int(x1), int(y1) - 3, player_label(p))
         if self._minimap is not None:
             target_w = int(self.width() * 0.3)
             img = self._minimap.scaledToWidth(target_w, Qt.TransformationMode.SmoothTransformation)

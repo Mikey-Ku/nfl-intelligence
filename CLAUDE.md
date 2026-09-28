@@ -27,6 +27,13 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
 - `src/nfl_intel/registration.py` — field registration: paint → yard lines → numbering → hash rows → camera; `FieldRegistrar` follows the camera through a shot
 - `src/nfl_intel/fieldmask.py` — turf band, painted sidelines, grass colour; drives the field crop and the bench filter
 - `src/nfl_intel/pipeline.py` — `PlayTracker`: one frame in, `FrameResult` out
+- `src/nfl_intel/ocr.py` — text off a frame with Apple Vision (on-device)
+- `src/nfl_intel/playinfo.py` — NFL Pro's play header → the play's row in nflverse play-by-play and FTN charting
+- `src/nfl_intel/anchor.py` — pins the relative mapping to the real field: line of scrimmage, direction, end-zone finder
+- `src/nfl_intel/fieldtrack.py` — tracking in yards (Hungarian assignment) and snap detection
+- `src/nfl_intel/roles.py` — QB / REC / OL / DEF / DL from the formation; the look in words
+- `src/nfl_intel/analysis.py` — `PlayAnalyzer` (play → anchor → snap → roles → value) and `AnalyzedTracker`, which wraps `PlayTracker`
+- `src/nfl_intel/topdown.py` — top-down view of an anchored play, `TopDownWriter` for `nfl run --topdown`
 - `src/nfl_intel/stats.py` — `LiveStats`: play segmentation, team counts, tracking health, value/plus-minus hooks
 - `src/nfl_intel/panel.py` — renders the stats side panel (QPainter), shared by the window, test shots and tests
 - `src/nfl_intel/overlay.py` — transparent overlay window + docked stats panel window (PySide6)

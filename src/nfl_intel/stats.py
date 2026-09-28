@@ -53,6 +53,8 @@ class StatsSnapshot:
     team_names: tuple[str, str, str] = ("Dark jerseys", "Light jerseys", "Unassigned")
     on_field_note: str = "of 22 players + officials"
     delta_note: str = "since the snap"
+    value_note: str = ""                           # why there is no value, when the caller knows
+    clock_text: str = ""                           # the caller's own clock ("snap +1.2s"), shown instead of the play clock
 
 
 class LiveStats:
@@ -71,6 +73,11 @@ class LiveStats:
         team_names: tuple[str, str, str] = ("Dark jerseys", "Light jerseys", "Unassigned"),
         on_field_note: str = "of 22 players + officials",
         baseline_fn: Callable[[float], float] | None = None,
+        value_clock_fn: Callable[[], float | None] | None = None,
+        value_note_fn: Callable[[], str] | None = None,
+        team_names_fn: Callable[[], tuple[str, str, str] | None] | None = None,
+        rows_always: bool = False,
+        clock_text_fn: Callable[[], str] | None = None,
     ):
         self.window = window
         self.settle = settle
@@ -85,6 +92,11 @@ class LiveStats:
         self.team_names = team_names
         self.on_field_note = on_field_note
         self.baseline_fn = baseline_fn      # typical value at a given play clock; the plus/minus is measured against it
+        self.value_clock_fn = value_clock_fn  # seconds since the snap, when the caller knows it; None = not live
+        self.value_note_fn = value_note_fn
+        self.team_names_fn = team_names_fn
+        self.clock_text_fn = clock_text_fn
+        self.rows_always = rows_always        # the caller has rows to show even without yards (the play's name)
         self.play = 0
         self._fps = 0.0
         self._last_t: float | None = None
@@ -173,13 +185,21 @@ class LiveStats:
 
         rows: list[tuple[str, str]] = []
         value = delta = None
+        if self.rows_always and self.metrics_fn is not None and not (calibrated and self._in_play):
+            rows = self.metrics_fn(result)
         if calibrated and self._in_play:
             if self.metrics_fn is not None:
                 rows = self.metrics_fn(result)
-            if self.value_fn is not None:
-                value = float(self.value_fn(result))
-                self._values.append((clock, value))
-                delta = value - (self.baseline_fn(clock) if self.baseline_fn is not None else self._values[0][1])
+            vclock = clock if self.value_clock_fn is None else self.value_clock_fn()
+            if self.value_fn is not None and vclock is not None:
+                v = self.value_fn(result)
+                if v is not None:
+                    value = float(v)
+                    self._values.append((vclock, value))
+                    delta = value - (self.baseline_fn(vclock) if self.baseline_fn is not None else self._values[0][1])
+            elif self.value_fn is not None and self._values:
+                value = self._values[-1][1]                  # the play is over: hold the last reading
+                delta = value - (self.baseline_fn(self._values[-1][0]) if self.baseline_fn is not None else self._values[0][1])
 
         return StatsSnapshot(
             t=t,
@@ -200,8 +220,10 @@ class LiveStats:
             swings=self._swings() if self._values else [],
             field_bbox=field_bbox,
             value_unit=self.value_unit,
-            team_names=self.team_names,
+            team_names=(self.team_names_fn() if self.team_names_fn is not None else None) or self.team_names,
             on_field_note=self.on_field_note,
+            value_note=self.value_note_fn() if self.value_note_fn is not None else "",
+            clock_text=self.clock_text_fn() if self.clock_text_fn is not None else "",
             delta_note="vs a typical play" if self.baseline_fn is not None else "since the snap",
         )
 

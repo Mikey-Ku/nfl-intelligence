@@ -6,7 +6,9 @@ teams by jersey colour, and map feet from pixels to yards on the field. Personal
 project; see [BRIEF.md](BRIEF.md) for scope.
 
 ```
-screen / clip ─► YOLO (pretrained) ─► ByteTrack ─► jersey k-means ─► homography ─► CSV + overlay + replay
+screen / clip ─► YOLO (pretrained) ─► BoT-SORT ─► jersey k-means ─► field mapping ─► CSV + overlay + replay
+                                                                        │
+      play header (OCR) ─► play-by-play row ─► real yard line ─► roles at the snap ─► pass value, live
 ```
 
 ## Setup
@@ -31,10 +33,11 @@ uv run nfl overlay --window "Chrome" --out outputs/live.csv
 ```
 
 A transparent, click-through window sits on top of the player and draws each tracked
-player's box, ID and team colour. A stats panel docks beside the video (left by default,
-`--panel-side right`, `--no-panel`): players on the field per team, tracking health, and the
-play value with its plus/minus once calibration and the value model exist. The window is
-captured by ID, so the overlay never sees its own boxes and other windows can cover it.
+player's box, team colour and, from the snap, his name in the play (QB, R1, D3). A stats
+panel docks beside the video (left by default, `--panel-side right`, `--no-panel`): the play,
+the formation, the play value with its plus/minus, the best throw, the coverage read, and
+tracking health. The window is captured by ID, so the overlay never sees its own boxes and
+other windows can cover it. `--no-analysis` goes back to tracking only.
 
 `--shots outputs/shots` saves a test image (annotated field + panel) every few seconds.
 `--seconds 40` stops on its own; Ctrl-C also ends cleanly and writes the CSV.
@@ -50,6 +53,7 @@ uv run nfl run data/clips/atl-gb-td.mp4 --shots outputs/shots
 
 ```bash
 uv run nfl run data/clips/*.mp4 --save-video          # one CSV per clip in outputs/
+uv run nfl run data/clips/*.mp4 --topdown             # + a top-down replay with the panel per play
 uv run nfl replay outputs/play01_sideline.csv          # top-down replay video
 uv run nfl eval outputs/play01_sideline.csv data/truth/play01.csv   # yards error, recall, ID switches
 ```
@@ -83,6 +87,34 @@ and is calibrated within 3 points; throws to the model's top option gained 12.0 
 option 9.4, third or lower 5.8. The data has no linemen, so pressure isn't modelled, and it
 runs on sensor tracking until video positions are in yards.
 
+## From film to football
+
+On a sideline-angle shot the pipeline works the play out on its own, in this order:
+
+1. **Which play.** NFL Pro's header ("Q4 08:21 / 2ND & 7 / GB ON ATL 15") is read off the
+   captured window with Apple's on-device text recognition and matched to its row in the
+   nflverse play-by-play (`data/nflverse/play_by_play_<season>.parquet`). That row gives the
+   yard line, who has the ball, shotgun or not, and afterwards what happened.
+2. **Where on the field.** The two teams face each other across the line of scrimmage, the
+   painted end zone says which way the offense is going, and the yard line from step 1 pins
+   the mapping to the real field: offense moving +x, goal line at x = 110.
+3. **Tracking in yards.** Players are followed on the field rather than in the picture, so a
+   player keeps his identity when the image tracker hands him a new number.
+4. **The snap and the roles.** The snap is where a still formation starts moving. Just before
+   it, each player gets a role from where he stands: side of the ball first, jersey second.
+5. **The value.** From the snap, every receiver is scored by the pass value model and the
+   panel shows the best throw, the plus/minus against a typical play, and the coverage read.
+
+On the saved clip (Packers-Falcons, 2026 week 3) all three plays were matched, both
+sideline shots anchored from the end zone, and on Love's touchdown to Golden the model's
+best throw, for most of the 2.2 seconds after the snap that the clip covers, was the receiver
+who caught it. What it gets wrong today:
+linemen in a pile come out as one or two boxes, so heavy formations read badly (the goal-line
+run was charted with three in the backfield; we saw four); a stacked receiver can be missed;
+the typical-play baseline doesn't know about the red zone. Run plays get roles and a formation
+but no value: the model scores passes. Without the play-by-play file, or on the end-zone
+angle, the panel says what is missing instead of guessing.
+
 ## Fine-tuning the detector
 
 The pretrained COCO `person` class finds players but the detector is the bottleneck on film
@@ -108,8 +140,9 @@ Automatic, from the painted lines. `nfl run` and `nfl overlay` do it on their ow
 On the saved clip the sideline angle maps 70-100% of frames with the fitted lines on the paint
 (0.03-0.08 yd error against the lines used). The end-zone angle (camera looking down the
 field) is **not mapped yet**: through its long lens the scale across the field comes out
-wrong, so the pipeline declines to map it. Yard numbers are relative to the first line seen,
-not yet the real yard line. A first lock takes about a second; following takes 25-50 ms a frame.
+wrong, so the pipeline declines to map it. The mapping's own yard numbers start from the
+first line seen; anchoring (above) turns them into real yard lines. A first lock takes about
+a second; following takes 25-50 ms a frame.
 
 ## Manual calibration (fallback)
 
@@ -124,9 +157,11 @@ prints its mean error in yards as you go.
 
 ## Output
 
-One CSV row per player per frame: `frame, t, track_id, team, conf, x1, y1, x2, y2,
-foot_x_px, foot_y_px, x_yd, y_yd`. Field coordinates follow the Big Data Bowl convention
-(x 0–120 along the field, y 0–53.3 across it), so anything built on that data runs on ours.
+One CSV row per player per frame: `frame, t, shot, track_id, team, conf, x1, y1, x2, y2,
+foot_x_px, foot_y_px, x_yd, y_yd, role, label, anchored`. With `anchored` = 1 the yards are
+on the real field in the Big Data Bowl convention (x 0–120 along the field with the offense
+moving +x, y 0–53.3 across it), so anything built on that data runs on ours. With 0 they are
+relative to the mapping's first yard line.
 
 ## Tests
 

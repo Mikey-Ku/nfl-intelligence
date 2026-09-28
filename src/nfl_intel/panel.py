@@ -81,7 +81,7 @@ def render_panel(s: StatsSnapshot, width: int = 300, height: int = 560, dpr: flo
     p.setFont(_font(9))
     p.setPen(MUTED)
     p.drawText(QRectF(m, y - 14, w, 18), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-               f"{s.play_clock:4.1f}s   {s.fps:4.1f} fps")
+               f"{s.clock_text or f'{s.play_clock:4.1f}s'}   {s.fps:4.1f} fps")
     y += 22
 
     # play value / plus-minus
@@ -95,7 +95,7 @@ def render_panel(s: StatsSnapshot, width: int = 300, height: int = 560, dpr: flo
         p.setFont(_font(9.5))
         why = "Needs the value model" if s.calibrated else "Needs field calibration (yards)"
         p.drawText(QRectF(m + 12, y, w - 24, 96), Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextWordWrap,
-                   f"Plus/minus is off.\n{why}.")
+                   s.value_note or f"Plus/minus is off.\n{why}.")
     else:
         pct = s.value_unit == "%"
         d = s.value_delta or 0.0

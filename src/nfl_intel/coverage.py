@@ -35,8 +35,10 @@ def _pad(values, n=SLOTS) -> np.ndarray:
     return out
 
 
-def coverage_features(xy: np.ndarray, defenders: list[int], receivers: list[int], los: float, t: int) -> np.ndarray | None:
-    """xy is (frames, players, 2) from the snap; `t` is the frame to read the defence at."""
+def coverage_features(xy: np.ndarray, defenders: list[int], receivers: list[int], los: float, t: int,
+                      seconds: float | None = None) -> np.ndarray | None:
+    """xy is (frames, players, 2) from the snap; `t` is the frame to read the defence at.
+    `seconds` is the time since the snap if the frames aren't 10 per second."""
     if len(defenders) < 5 or t >= len(xy):
         return None
     a, b = xy[0, defenders], xy[t, defenders]
@@ -52,7 +54,7 @@ def coverage_features(xy: np.ndarray, defenders: list[int], receivers: list[int]
             k = int(np.argmin(np.linalg.norm(r0 - a[i], axis=1)))
             shadow.append(float(np.linalg.norm((b[i] - a[i]) - (r1[k] - r0[k]))))
     summary = [
-        t / HZ, len(defenders),
+        t / HZ if seconds is None else seconds, len(defenders),
         float((depth0 > 10).sum()), float((depth1 > 10).sum()),
         float(np.nanmean(shadow)) if shadow else np.nan,
         float(np.nanmin(shadow)) if shadow else np.nan,
@@ -99,8 +101,12 @@ class CoverageModel:
         best = shells.argmax(axis=1)
         return [CoverageRead(float(man[i]), SHELLS[int(classes[best[i]])], float(shells[i, best[i]])) for i in range(len(X))]
 
-    def read(self, xy: np.ndarray, defenders, receivers, los: float, t: int) -> CoverageRead | None:
-        f = coverage_features(xy, defenders, receivers, los, min(t, int(READ_TIMES[-1] * HZ)))
+    def read(self, xy: np.ndarray, defenders, receivers, los: float, t: int, seconds: float | None = None) -> CoverageRead | None:
+        if seconds is not None:
+            seconds = min(seconds, READ_TIMES[-1])
+        else:
+            t = min(t, int(READ_TIMES[-1] * HZ))
+        f = coverage_features(xy, defenders, receivers, los, t, seconds)
         return None if f is None else self.read_many(f)[0]
 
 

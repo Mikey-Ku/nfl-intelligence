@@ -17,6 +17,7 @@ CSV_FIELDS = [
     "foot_x_px", "foot_y_px",
     "x_yd", "y_yd",
     "role", "label",
+    "anchored",
 ]
 
 
@@ -39,6 +40,7 @@ class FrameResult:
     size: tuple[int, int]                  # source width, height in pixels
     players: list[TrackedPlayer]
     shot: int = 0                          # camera shot number; goes up at every cut
+    anchored: bool = False                 # yards are on the real field, offense moving +x (else relative to the mapping)
 
 
 def _fmt(v: float | None) -> str:
@@ -63,6 +65,7 @@ def write_csv(path: str | Path, results: Iterable[FrameResult]) -> int:
                     _fmt(p.foot_px[0]), _fmt(p.foot_px[1]),
                     _fmt(fx), _fmt(fy),
                     p.role or "", p.label or "",
+                    int(res.anchored),
                 ])
                 n += 1
     return n
@@ -76,7 +79,8 @@ def read_csv(path: str | Path) -> list[FrameResult]:
             idx = int(row["frame"])
             res = frames.get(idx)
             if res is None:
-                res = frames[idx] = FrameResult(idx, float(row["t"]), (0, 0), [], shot=int(row.get("shot") or 0))
+                res = frames[idx] = FrameResult(idx, float(row["t"]), (0, 0), [], shot=int(row.get("shot") or 0),
+                                                anchored=bool(int(row.get("anchored") or 0)))
             field = None
             if row["x_yd"] != "":
                 field = (float(row["x_yd"]), float(row["y_yd"]))

@@ -58,6 +58,10 @@ def _add_model_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--tracker", choices=TRACKERS, default="botsort",
                    help="botsort compensates for camera pans (default); bytetrack is faster for a fixed camera")
     p.add_argument("--calib", help="calibration JSON from `nfl calibrate`")
+    p.add_argument("--no-analysis", action="store_true",
+                   help="track only: no play lookup, roles, real yard lines or pass value")
+    p.add_argument("--value-model", default=None, help="pass value model (default models/pass_value.pkl)")
+    p.add_argument("--coverage-model", default=None, help="coverage model (default models/coverage.pkl)")
 
 
 def _resolve_source(args, fps_cap: float | None = None):
@@ -84,6 +88,23 @@ def _build_tracker(args, fps: float):
     calib = FieldCalibration.load(args.calib) if args.calib else None
     return PlayTracker(fps=fps, calibration=calib, weights=args.weights, device=args.device,
                        conf=args.conf, imgsz=args.imgsz, tracker=args.tracker, tiles=args.tiles)
+
+
+def _build_live(args, fps: float):
+    """The tracker and the panel's stats. With analysis on (the default) the tracker also reads
+    the play, anchors the field, names roles and scores the pass."""
+    from .stats import LiveStats, geometry_rows
+
+    tracker = _build_tracker(args, fps)
+    if getattr(args, "no_analysis", False):
+        return tracker, LiveStats(metrics_fn=geometry_rows)
+    from .analysis import AnalyzedTracker, PlayAnalyzer, live_stats, load_models
+
+    value, coverage = load_models(args.value_model, args.coverage_model)
+    if value is None:
+        print("no pass value model found: the panel shows formations only (train one with `nfl value-train`)")
+    analyzer = PlayAnalyzer(value, coverage)
+    return AnalyzedTracker(tracker, analyzer), live_stats(analyzer, value)
 
 
 # ------------------------------------------------------------------ commands
@@ -145,10 +166,21 @@ def _shot(frame, res, snap, tracker, path: Path) -> None:
 
     base = frame
     registrar = getattr(tracker, "registrar", None)
+    analysis = getattr(tracker, "analysis", None)
+    anchor = analysis.anchor if analysis is not None else None
     if registrar is not None and registrar.locked and registrar.rect is not None:
         from .registration import draw_grid
 
-        base = draw_grid(frame, registrar.H, registrar.rect)
+        if anchor is None:
+            base = draw_grid(frame, registrar.H, registrar.rect)
+        else:
+            from .topdown import FIRST_DOWN, LOS
+
+            marks = [(anchor.los_rel, LOS)]
+            to_go = analysis.record.header.distance if analysis.record is not None else None
+            if to_go is not None and anchor.los_abs + to_go < 110:
+                marks.append((anchor.to_relative_x(anchor.los_abs + to_go), FIRST_DOWN))
+            base = draw_grid(frame, registrar.H, registrar.rect, label=anchor.yard_name, marks=marks)
     img = annotate(base, res)
     field = getattr(tracker, "field", None)
     if field is not None:
@@ -156,18 +188,56 @@ def _shot(frame, res, snap, tracker, path: Path) -> None:
         img = img[y1:y2, x1:x2]
     height = 900
     img = cv2.resize(img, (int(img.shape[1] * height / img.shape[0]), height), interpolation=cv2.INTER_AREA)
-    panel = qimage_to_bgr(render_panel(snap, 300, height // 2, dpr=2.0))
+    panel = qimage_to_bgr(render_panel(snap, 320, 600, dpr=1.5))
     gap = np.full((height, 16, 3), 20, dtype=np.uint8)
-    cv2.imwrite(str(path), np.hstack([img, gap, panel]), [cv2.IMWRITE_JPEG_QUALITY, 88])
+    parts = [img, gap]
+    if anchor is not None and analysis.players:
+        from .topdown import draw_topdown, view_for
+
+        parts += [draw_topdown(view_for(analysis, height), analysis), gap]
+    cv2.imwrite(str(path), np.hstack(parts + [panel]), [cv2.IMWRITE_JPEG_QUALITY, 88])
+
+
+def _build_live_stats(tracker):
+    """Fresh stats for the next clip, on the tracker already built."""
+    from .stats import LiveStats, geometry_rows
+
+    if not hasattr(tracker, "analyzer"):
+        return LiveStats(metrics_fn=geometry_rows)
+    from .analysis import live_stats
+
+    return live_stats(tracker.analyzer, tracker.analyzer.value_model)
+
+
+def _narrate(tracker, res, told: set) -> None:
+    """Print each thing the analysis works out, once per shot, as it happens."""
+    a = getattr(tracker, "analysis", None)
+    if a is None:
+        return
+
+    def say(key: str, text: str) -> None:
+        if (res.shot, key) not in told:
+            told.add((res.shot, key))
+            print(f"  shot {res.shot} {res.t:6.1f}s  {text}")
+
+    if a.record is not None and a.record.header.complete:
+        found = f"{a.record.play_type}, {a.record.outcome}" if a.record.matched else "not found in the play-by-play"
+        say("play", f"play: {a.record.summary}  ({found})")
+    if a.anchor is not None:
+        say("anchor", f"line of scrimmage on the {a.record.header.side or ''} {a.record.header.yard}".replace("  ", " ")
+            + f", settled by the {a.anchor.source}")
+    if a.look[0]:
+        say("look", f"look: {a.look[0]} | {a.look[1]}")
+    if a.snap_t is not None:
+        say("snap", f"snap at {a.snap_t:.1f}s")
+    if a.value is not None:
+        say("value", f"first value {a.value:.1f} yd, best throw {a.best.label}")
 
 
 def cmd_overlay(args) -> None:
-    from .stats import LiveStats, geometry_rows
-
     source = _resolve_source(args, fps_cap=args.fps_cap)
     region = source.region
-    tracker = _build_tracker(args, fps=args.fps_cap or 30.0)
-    stats = LiveStats(metrics_fn=geometry_rows)
+    tracker, stats = _build_live(args, fps=args.fps_cap or 30.0)
 
     results = []
     writer = None
@@ -229,6 +299,8 @@ def cmd_overlay(args) -> None:
             writer.release()
             print(f"wrote {args.record}")
         if args.out and results:
+            if hasattr(tracker, "finish"):
+                tracker.finish()
             n = write_csv(args.out, results)
             print(f"wrote {n} rows to {args.out}")
         if shots_dir:
@@ -269,7 +341,6 @@ def cmd_run(args) -> None:
     from PySide6.QtGui import QGuiApplication
 
     from .draw import annotate
-    from .stats import LiveStats, geometry_rows
 
     app = QGuiApplication.instance() or QGuiApplication([])   # the stats panel renders with Qt
 
@@ -278,23 +349,30 @@ def cmd_run(args) -> None:
     tracker = None
     for path in args.videos:
         src = VideoSource(path)
-        if tracker is None:
-            tracker = _build_tracker(args, fps=src.fps)
-        else:
+        if tracker is not None:
             tracker.reset()
+        tracker, stats = _build_live(args, fps=src.fps) if tracker is None else (tracker, _build_live_stats(tracker))
         stem = Path(path).stem
         csv_path = out_dir / f"{stem}.csv"
         writer = None
         if args.save_video:
             writer = cv2.VideoWriter(str(out_dir / f"{stem}.annotated.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), src.fps, src.size)
+        topdown = None
+        if args.topdown and hasattr(tracker, "analysis"):
+            from .topdown import TopDownWriter
+
+            topdown = TopDownWriter(out_dir, stem, src.fps)
         t0 = time.perf_counter()
         results = []
-        stats = LiveStats(metrics_fn=geometry_rows)
         last_shot = -1e9
+        told = set()
         for idx, t, frame in src:
             res = tracker.process(frame, idx, t)
             results.append(res)
             snap = stats.update(res, tracker.field.bbox if tracker.field is not None else None)
+            if topdown is not None:
+                topdown.add(res, tracker.analysis, snap)
+            _narrate(tracker, res, told)
             if args.shots and res.players and t - last_shot >= args.shot_every:
                 last_shot = t
                 shots = Path(args.shots)
@@ -310,7 +388,13 @@ def cmd_run(args) -> None:
                         break
         if writer is not None:
             writer.release()
+        if topdown is not None:
+            topdown.close()
+            for made in topdown.paths:
+                print(f"  top-down replay -> {made}")
         src.release()
+        if hasattr(tracker, "finish"):
+            tracker.finish()
         n = write_csv(csv_path, results)
         dt = time.perf_counter() - t0
         ids = {p.track_id for r in results for p in r.players}
@@ -470,6 +554,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--preview", action="store_true", help="show frames while tracking (q to skip)")
     r.add_argument("--shots", help="save test images (annotated field + stats panel) into this folder")
     r.add_argument("--shot-every", type=float, default=2.0, help="seconds between test images")
+    r.add_argument("--topdown", action="store_true", help="also write a top-down replay with the stats panel for every shot that anchors")
     r.set_defaults(func=cmd_run)
 
     rp = sub.add_parser("replay", help="render a top-down replay from a tracking CSV")
