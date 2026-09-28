@@ -13,6 +13,8 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
+from .imaging import shrink
+
 
 @dataclass
 class FieldInfo:
@@ -122,7 +124,7 @@ def find_field(
     Returns None when less than `min_fraction` of the frame is grass (menus, replays, ads).
     """
     h, w = frame.shape[:2]
-    small = cv2.resize(frame, (max(1, int(w * scale)), max(1, int(h * scale))), interpolation=cv2.INTER_AREA)
+    small = shrink(frame, (max(1, int(w * scale)), max(1, int(h * scale))))
     sh, sw = small.shape[:2]
     lab = cv2.cvtColor(small, cv2.COLOR_BGR2LAB).astype(np.float64)
     green = grass_mask(small)
@@ -187,7 +189,7 @@ def find_sideline(frame: np.ndarray, field: FieldInfo, which: str, scale: float 
     if y2 - y1 < 8 or x2 - x1 < 8:
         return None
     roi = frame[y1:y2, x1:x2]
-    small = cv2.resize(roi, (max(8, int(roi.shape[1] * scale)), max(8, int(roi.shape[0] * scale))), interpolation=cv2.INTER_AREA)
+    small = shrink(roi, (max(8, int(roi.shape[1] * scale)), max(8, int(roi.shape[0] * scale))))
     mask = white_mask(small).astype(np.uint8) * 255
     min_len = int(small.shape[1] * 0.3)
     lines = cv2.HoughLinesP(mask, 1, np.pi / 180, threshold=max(20, min_len // 3), minLineLength=min_len, maxLineGap=int(small.shape[1] * 0.03))

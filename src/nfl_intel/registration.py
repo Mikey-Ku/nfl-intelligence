@@ -30,6 +30,7 @@ import numpy as np
 
 from .camera import Camera, fit_camera, looks_across
 from .field import FIELD_WIDTH, HASH_INSET
+from .imaging import shrink
 
 HASH_NEAR = HASH_INSET                       # 23.58 yd from the near sideline
 HASH_FAR = FIELD_WIDTH - HASH_INSET          # 29.75
@@ -188,7 +189,7 @@ def prepare(frame: np.ndarray, field_info, boxes: np.ndarray | None, width: int,
         return None
     scale = width / float(x2 - x1)
     if img is None:
-        img = cv2.resize(frame[y1:y2, x1:x2], (width, max(8, int(round((y2 - y1) * scale)))), interpolation=cv2.INTER_AREA)
+        img = shrink(frame[y1:y2, x1:x2], (width, max(8, int(round((y2 - y1) * scale)))))
     wb = None
     if boxes is not None and len(boxes):
         wb = (np.asarray(boxes, dtype=np.float64) - np.array([x1, y1, x1, y1])) * scale
@@ -966,9 +967,9 @@ class FieldRegistrar:
         """One resize of the video per frame: the working image, and a small grey one for motion."""
         x1, y1, x2, y2 = rect
         scale = REFINE_WIDTH / float(x2 - x1)
-        img = cv2.resize(frame[y1:y2, x1:x2], (REFINE_WIDTH, max(8, int(round((y2 - y1) * scale)))), interpolation=cv2.INTER_AREA)
+        img = shrink(frame[y1:y2, x1:x2], (REFINE_WIDTH, max(8, int(round((y2 - y1) * scale)))))
         self._scale = self.motion_width / float(x2 - x1)
-        small = cv2.resize(img, (self.motion_width, max(8, int(round((y2 - y1) * self._scale)))), interpolation=cv2.INTER_AREA)
+        small = shrink(img, (self.motion_width, max(8, int(round((y2 - y1) * self._scale)))))
         return img, cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
 
     def _player_mask(self, shape, rect, boxes) -> np.ndarray:

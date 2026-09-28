@@ -23,7 +23,7 @@ import numpy as np
 from .anchor import Anchor, anchor_play, find_end_zone
 from .fieldtrack import FieldTracker, SnapDetector
 from .playinfo import PlayRecord, match_play, read_header
-from .roles import assign_roles, describe_look
+from .roles import assign_roles, describe_look, lined_up, update_roles
 from .schema import FrameResult, TrackedPlayer
 from .stats import LiveStats
 from .value import PassValueModel, ReceiverScore, play_value, receiver_features
@@ -84,7 +84,7 @@ class AnalysisView:
         if a.anchor is None:
             return "Field mapped.\nFinding the line of scrimmage."
         if a.snap_t is None:
-            return "Lined up.\nWaiting for the snap."
+            return "Waiting for the offense\nto line up." if a.look[0].startswith("Not at") else "Lined up.\nWaiting for the snap."
         if not self.has_model:
             return "Needs the value model:\nrun `nfl value-train`."
         if a.since_snap is not None and a.since_snap > LIVE_FOR:
@@ -226,14 +226,22 @@ class PlayAnalyzer(AnalysisView):
         if len(slots) < 10:
             return
         xy = self.anchor.to_absolute(np.array([s.xy for s in slots]))
-        roles = assign_roles(slots, xy, self.anchor.offense_team, self.anchor.los_abs, self._shotgun)
-        look = describe_look(xy, [roles.get(s.id) for s in slots], self.anchor.los_abs, self._shotgun)
+        roles = assign_roles(slots, xy, self.anchor.offense_team, self.anchor.los_abs, self._shotgun, self._hash)
+        look = describe_look(xy, [roles.get(s.id) for s in slots], self.anchor.los_abs, self._shotgun, self._hash)
         if look[0]:
             self.look = look
 
     @property
     def _shotgun(self) -> bool | None:
         return self.record.shotgun if (self.record is not None and self.record.matched) else None
+
+    @property
+    def _hash(self) -> str | None:
+        return self.record.hash_mark if (self.record is not None and self.record.matched) else None
+
+    @property
+    def _passing(self) -> bool:
+        return self.record is None or not self.record.matched or self.record.is_pass
 
     def _name_roles(self) -> None:
         # the formation as it stood just before the snap, not as it looks once everyone is moving
@@ -244,32 +252,48 @@ class PlayAnalyzer(AnalysisView):
             slots = self.tracker.players
             stood = {s.id: s.xy for s in slots}
         xy = self.anchor.to_absolute(np.array([stood[s.id] for s in slots]))
-        self.roles = assign_roles(slots, xy, self.anchor.offense_team, self.anchor.los_abs, self._shotgun)
+        self.roles = assign_roles(slots, xy, self.anchor.offense_team, self.anchor.los_abs, self._shotgun, self._hash)
         self.at_snap = {s.id: p for s, p in zip(slots, xy)}
-        look = describe_look(xy, [self.roles.get(s.id) for s in slots], self.anchor.los_abs, self._shotgun)
+        look = describe_look(xy, [self.roles.get(s.id) for s in slots], self.anchor.los_abs, self._shotgun, self._hash)
         if look[0]:
             self.look = look
-        # receivers and defenders are numbered across the field, from the offense's left
+        self._relabel()
+
+    def _relabel(self) -> None:
+        """Receivers and defenders are numbered across the field, from the offense's left."""
+        self.labels = {}
         for prefix, role in (("R", "REC"), ("D", "DEF")):
-            ids = sorted((s.id for s in slots if self.roles.get(s.id) == role), key=lambda i: -self.at_snap[i][1])
+            ids = sorted((sid for sid, r in self.roles.items() if r == role and sid in self.at_snap), key=lambda i: -self.at_snap[i][1])
             for n, sid in enumerate(ids, 1):
                 self.labels[sid] = f"{prefix}{n}"
-        for s in slots:
-            if self.roles.get(s.id) == "QB":
-                self.labels[s.id] = "QB"
-            s.role = self.roles.get(s.id)
-            s.label = self.labels.get(s.id)
-
-    def _spot_rushers(self) -> None:
-        """A defender who has crossed the line of scrimmage is rushing, whatever he looked like before."""
+        for sid, r in self.roles.items():
+            if r == "QB":
+                self.labels[sid] = "QB"
         for s in self.tracker.slots:
-            if self.roles.get(s.id) == "DEF" and self.anchor.to_absolute(s.xy)[0, 0] < self.anchor.los_abs - 0.7:
-                self.roles[s.id] = s.role = "DL"
-                self.labels.pop(s.id, None)
-                s.label = None
+            s.role, s.label = self.roles.get(s.id), self.labels.get(s.id)
+
+    def _watch_roles(self, since: float) -> None:
+        """What players do after the snap corrects what their alignment suggested."""
+        now = {s.id: self.anchor.to_absolute(s.xy)[0] for s in self.tracker.slots if s.id in self.roles}
+        changed = update_roles(self.roles, now, self.anchor.los_abs, since, self._passing)
+        if any(self.roles[sid] in ("REC", "DEF") or sid in self.labels for sid in changed):
+            if since <= 1.0:
+                self._relabel()                          # early enough that nobody has learned the names yet
+            else:
+                for sid in changed:                      # later, keep everyone's name and add to the end
+                    self.labels.pop(sid, None)
+                    role = self.roles[sid]
+                    if role in ("REC", "DEF"):
+                        prefix = "R" if role == "REC" else "D"
+                        taken = {v for v in self.labels.values() if v.startswith(prefix)}
+                        n = 1
+                        while f"{prefix}{n}" in taken:
+                            n += 1
+                        self.labels[sid] = f"{prefix}{n}"
+                for s in self.tracker.slots:
+                    s.role, s.label = self.roles.get(s.id), self.labels.get(s.id)
 
     def _score(self, since: float) -> tuple[list[ReceiverScore], str]:
-        self._spot_rushers()
         slots = [s for s in self.tracker.slots if s.id in self.roles]
         by_role = {r: [s for s in slots if self.roles[s.id] == r] for r in ("QB", "REC", "DEF")}
         if not by_role["QB"] or not by_role["REC"] or len(by_role["DEF"]) < 2 or self.value_model is None:
@@ -323,12 +347,19 @@ class PlayAnalyzer(AnalysisView):
                 self._recent.pop(0)
             if self._mapped_frames % 6 == 3:
                 self._anchor(frame, registrar, field_info, boxes)
-            if self.anchor is not None and self._mapped_frames % LOOK_EVERY == 4:
-                self._read_look()
-            seen = self.snap.update(result.t, self.tracker.players)
-            if seen is not None and self.anchor is not None:
-                self.snap_t = seen
-                self._name_roles()
+            if self.anchor is not None:
+                players = self.tracker.players
+                at_line = len(players) >= 8 and lined_up(
+                    players, self.anchor.to_absolute(np.array([s.xy for s in players])), self.anchor.offense_team, self.anchor.los_abs)
+                if not at_line:
+                    self.snap.reset()                   # breaking the huddle is a lot of movement too, but it isn't the snap
+                    self.look = ("Not at the line yet", "")
+                else:
+                    if self._mapped_frames % LOOK_EVERY == 4 or self.look[0].startswith("Not at"):
+                        self._read_look()
+                    if self.snap.update(result.t, players) is not None:
+                        self.snap_t = self.snap.snap_t
+                        self._name_roles()
         out.anchor, out.snap_t, out.look = self.anchor, self.snap_t, self.look
         out.slot_ids = [s.id for s in slots]
 
@@ -354,11 +385,13 @@ class PlayAnalyzer(AnalysisView):
                         track_id=-1 - s.id, team=side, box=(0.0, 0.0, 0.0, 0.0), conf=0.0, foot_px=(0.0, 0.0),
                         field_yd=(float(q[0]), float(q[1])), role=self.roles[s.id], label=self.labels.get(s.id),
                     ))
-        passing = self.record is None or not self.record.matched or self.record.is_pass
+        passing = self._passing
         if self.snap_t is not None and self.anchor is not None and self.roles:
             since = result.t - self.snap_t
             out.since_snap = since
             out.live = 0.0 <= since <= LIVE_FOR
+            if out.live:
+                self._watch_roles(since)
             if out.live and passing:
                 if self._mapped_frames % self.score_every == 0 or not self._held[0]:
                     self._held = self._score(since)

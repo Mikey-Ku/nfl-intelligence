@@ -103,7 +103,7 @@ def _build_live(args, fps: float):
     value, coverage = load_models(args.value_model, args.coverage_model)
     if value is None:
         print("no pass value model found: the panel shows formations only (train one with `nfl value-train`)")
-    analyzer = PlayAnalyzer(value, coverage)
+    analyzer = PlayAnalyzer(value, coverage, score_every=2)       # the value moves slowly; every other frame is plenty
     return AnalyzedTracker(tracker, analyzer), live_stats(analyzer, value)
 
 
@@ -226,10 +226,10 @@ def _narrate(tracker, res, told: set) -> None:
     if a.anchor is not None:
         say("anchor", f"line of scrimmage on the {a.record.header.side or ''} {a.record.header.yard}".replace("  ", " ")
             + f", settled by the {a.anchor.source}")
-    if a.look[0]:
-        say("look", f"look: {a.look[0]} | {a.look[1]}")
+    if a.look[0] and a.look[1] and a.snap_t is None:
+        say("look", f"lined up: {a.look[0]} | {a.look[1]}")
     if a.snap_t is not None:
-        say("snap", f"snap at {a.snap_t:.1f}s")
+        say("snap", f"snap at {a.snap_t:.1f}s: {a.look[0]} | {a.look[1]}")
     if a.value is not None:
         say("value", f"first value {a.value:.1f} yd, best throw {a.best.label}")
 
@@ -484,6 +484,21 @@ def cmd_value_demo(args) -> None:
     del app
 
 
+def cmd_data(args) -> None:
+    from .nflverse import describe, refresh
+
+    for kind, size in refresh(args.season, args.root).items():
+        print(f"  {kind:14s} " + ("not published for this season yet" if size is None else f"{size / 1e6:.1f} MB"))
+    print(describe(args.season, args.root))
+
+
+def cmd_roles_check(args) -> None:
+    from .roles_check import check
+
+    lo, _, hi = args.weeks.partition("-")
+    check(list(range(int(lo), int(hi or lo) + 1)), noise=args.noise, root=args.data)
+
+
 def cmd_eval(args) -> None:
     from .evaluate import evaluate_files
 
@@ -607,6 +622,17 @@ def build_parser() -> argparse.ArgumentParser:
     vd.add_argument("--coverage-model", default="models/coverage.pkl")
     vd.add_argument("--out-dir", default="outputs/value_demo")
     vd.set_defaults(func=cmd_value_demo)
+
+    da = sub.add_parser("data", help="fetch this season's public play-by-play and charting (nflverse)")
+    da.add_argument("--season", type=int, default=2026)
+    da.add_argument("--root", default="data/nflverse")
+    da.set_defaults(func=cmd_data)
+
+    rc = sub.add_parser("roles-check", help="mark role assignment against real snaps (Big Data Bowl)")
+    rc.add_argument("--weeks", default="1-3", help="2023 weeks, e.g. 1-3 or 16")
+    rc.add_argument("--noise", type=float, default=0.4, help="position noise in yards, standing in for video")
+    rc.add_argument("--data", default="data/bdb/2026-prediction")
+    rc.set_defaults(func=cmd_roles_check)
 
     ev = sub.add_parser("eval", help="score a tracking CSV against a ground-truth CSV in the same schema")
     ev.add_argument("pred")

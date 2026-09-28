@@ -156,6 +156,12 @@ class PlayRecord:
     charted: dict = field(default_factory=dict)      # FTN: qb_location, n_defense_box, n_pass_rushers, ...
 
     @property
+    def hash_mark(self) -> str | None:
+        """Where the ball was spotted, from the charting: "L", "M" or "R" from the offense's side."""
+        mark = self.charted.get("starting_hash")
+        return mark if mark in ("L", "M", "R") else None
+
+    @property
     def is_pass(self) -> bool:
         return self.play_type == "pass"
 

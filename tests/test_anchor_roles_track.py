@@ -196,14 +196,72 @@ def test_describe_look_reads_like_a_broadcast():
 
 
 def test_the_play_by_play_settles_where_the_quarterback_is():
-    # a back three yards deep behind the ball looks like a shotgun quarterback, unless we know better
+    # a back four yards deep behind the ball looks like a shotgun quarterback, unless we know better
     heavy = [("RB", -4.0, BALL), ("RB", -6.5, BALL)] + [p for p in SHOTGUN[2:]]
     s, xy = slots(heavy)
     assert assign_roles(s, xy, 0, LOS)[0] == "QB"
     told = assign_roles(s, xy, 0, LOS, shotgun=False)
-    assert "QB" not in told.values() and told[0] == "REC"
+    named = [i for i, r in told.items() if r == "QB"]
+    assert told[0] == "REC" and len(named) == 1                   # the back stays a back
+    assert abs(xy[named[0], 1] - BALL) <= 1.7 and xy[named[0], 0] > LOS - 2.0      # under centre: a man on the ball
     offense, _ = describe_look(xy, [told[sl.id] for sl in s], LOS, shotgun=False)
-    assert offense.startswith("Under centre")
+    assert offense.startswith("Under centre") and offense.endswith("2 backs")
     few, fxy = slots(heavy, drop=(0, 1, 7, 8))
     roles = assign_roles(few, fxy, 0, LOS, shotgun=False)
     assert describe_look(fxy, [roles[sl.id] for sl in few], LOS, shotgun=False)[0] == "Under centre, 2 of 5 receivers found"
+
+
+def test_the_charted_hash_mark_picks_the_quarterback_from_the_back_beside_him():
+    # no linemen found at all, quarterback on the right hash, the back a yard and a half inside him
+    gun = [("QB", -5.0, 23.7), ("RB", -4.6, 26.0), ("WR", -1.0, 45.0), ("WR", -1.2, 38.0), ("WR", -1.0, 6.0), ("TE", -1.5, 18.5)] + SHOTGUN[15:]
+    s, xy = slots(gun)
+    assert assign_roles(s, xy, 0, LOS)[1] == "QB"                 # the crowd is gone, so the guess lands on the back
+    told = assign_roles(s, xy, 0, LOS, shotgun=True, hash_mark="R")
+    assert told[0] == "QB" and told[1] == "REC"
+    under = [("QB", -1.6, 29.6), ("RB", -7.0, 29.5)] + gun[2:]
+    s, xy = slots(under)
+    assert assign_roles(s, xy, 0, LOS, shotgun=False, hash_mark="L")[0] == "QB"
+
+
+def test_what_players_do_after_the_snap_corrects_their_roles():
+    from nfl_intel.roles import update_roles
+
+    roles = {1: "DEF", 2: "DL", 3: "OL", 4: "OL", 5: "DL", 6: "REC"}
+    now = {1: np.array([LOS - 1.5, 20.0]),      # a linebacker who came through: rushing
+           2: np.array([LOS + 4.0, 24.0]),      # walked up on the line, then dropped: covering
+           3: np.array([LOS + 3.0, 31.0]),      # "lineman" running a route: he was a tight end
+           4: np.array([LOS - 2.5, 26.0]),      # a lineman pass blocking
+           5: np.array([LOS - 1.0, 27.0]),
+           6: np.array([LOS + 8.0, 40.0])}
+    changed = update_roles(roles, now, LOS, since_snap=1.0)
+    assert roles == {1: "DL", 2: "DEF", 3: "REC", 4: "OL", 5: "DL", 6: "REC"} and sorted(changed) == [1, 2, 3]
+    run = {3: "OL"}
+    assert update_roles(run, now, LOS, since_snap=1.0, passing=False) == [] and run[3] == "OL"    # on a run linemen do go downfield
+
+
+def test_roles_are_marked_against_tracked_plays():
+    from nfl_intel.bdb import Play
+    from nfl_intel.roles_check import score_roles
+
+    def play(pid, qb_y, shotgun):
+        # passer, a back beside him, three route runners, five coverage men; no linemen, as in the Big Data Bowl set
+        depth = -5.0 if shotgun else -1.6
+        start = np.array([[LOS + depth, qb_y], [LOS - 4.6, qb_y + 2.4], [LOS - 1.0, 45.0], [LOS - 1.2, 8.0], [LOS - 1.5, qb_y + 6.0],
+                          [LOS + 5.0, 45.0], [LOS + 6.0, 8.0], [LOS + 0.9, qb_y + 6.5], [LOS + 12.0, 20.0], [LOS + 12.0, 33.0]])
+        go = np.array([[-0.2, 0], [0.3, -0.3], [0.6, 0], [0.6, 0], [0.5, 0], [0.4, 0], [0.4, 0], [0.4, 0], [0.3, 0], [0.3, 0]])
+        xy = np.stack([start + go * t for t in range(20)])
+        return Play(game_id=1, play_id=pid, week=1, los=LOS, xy=xy, offense=np.array([True] * 5 + [False] * 5),
+                    roles=["QB"] + ["REC"] * 4 + ["DEF"] * 5, names=[f"p{i}" for i in range(10)], positions=["QB", "RB", "WR", "WR", "TE"] + ["CB", "CB", "OLB", "FS", "SS"],
+                    qb=0, target=2, ball_land=(LOS + 10.0, 45.0))
+
+    plays = [play(1, 23.7, True), play(2, 29.6, True), play(3, 26.7, False)]
+    hints = {(1, 1): (True, "R"), (1, 2): (True, "L"), (1, 3): (False, "M")}
+    told = score_roles(plays, hints)
+    assert told.plays == 3 and told.share("qb right", "plays") == 1.0
+    assert told.counts["gun"] == 2 and told.counts["under"] == 1
+    assert told.share("rec right", "rec") == 1.0
+    assert told.share("def right", "def") == pytest.approx(12 / 15)          # the man on the line looks like a rusher...
+    assert told.share("def right later", "def") == 1.0                       # ...until he drops into coverage
+    alone = score_roles(plays, hints, use_hints=False)
+    assert alone.counts["gun"] == 2 and alone.share("qb right under", "under") == 0.0     # nobody to stand behind
+    assert len(told.lines()) == 7

@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import supervision as sv
 
-DEFAULT_WEIGHTS = "yolo11n.pt"
+DEFAULT_WEIGHTS = "yolo11s.pt"
 
 
 def pick_device() -> str:
@@ -52,6 +52,7 @@ class PlayerDetector:
             imgsz=self.imgsz,
             device=self.device,
             classes=self.classes,
+            max_det=60,                       # a crowd shot can hold hundreds of people; a play never does
             verbose=False,
         )[0]
         return sv.Detections.from_ultralytics(result)

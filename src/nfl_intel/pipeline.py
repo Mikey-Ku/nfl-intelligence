@@ -11,6 +11,7 @@ import supervision as sv
 from .detect import DEFAULT_WEIGHTS, PlayerDetector
 from .field import FieldCalibration
 from .fieldmask import FieldInfo, expand_bbox, find_field
+from .imaging import shrink
 from .registration import FieldRegistrar
 from .schema import FrameResult, TrackedPlayer
 from .teams import TeamAssigner
@@ -69,7 +70,7 @@ class PlayTracker:
     def _is_cut(self, frame: np.ndarray) -> bool:
         """A camera cut: the whole picture changes at once. Pans and zooms move the mean
         thumbnail difference by 1-4 grey levels; cuts on NFL Pro film move it by 20+."""
-        thumb = cv2.cvtColor(cv2.resize(frame, (96, 54), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2GRAY).astype(np.float32)
+        thumb = cv2.cvtColor(shrink(frame[::4, ::4], (96, 54)), cv2.COLOR_BGR2GRAY).astype(np.float32)
         prev, self._thumb = self._thumb, thumb
         return prev is not None and float(np.abs(thumb - prev).mean()) > self.cut_threshold
 

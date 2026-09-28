@@ -19,7 +19,7 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
 ## Layout
 
 - `src/nfl_intel/capture.py` — screen-region / window capture (mss + Quartz) and video files
-- `src/nfl_intel/detect.py` — YOLO player detector (pretrained, MPS on Apple silicon)
+- `src/nfl_intel/detect.py` — YOLO player detector (pretrained `yolo11s`, MPS on Apple silicon)
 - `src/nfl_intel/track.py` — BoT-SORT (camera-motion compensation) / ByteTrack giving stable IDs
 - `src/nfl_intel/teams.py` — jersey-color clustering into two teams, smoothed per track
 - `src/nfl_intel/field.py` — field model in yards, homography, landmark names, field drawing
@@ -31,7 +31,10 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
 - `src/nfl_intel/playinfo.py` — NFL Pro's play header → the play's row in nflverse play-by-play and FTN charting
 - `src/nfl_intel/anchor.py` — pins the relative mapping to the real field: line of scrimmage, direction, end-zone finder
 - `src/nfl_intel/fieldtrack.py` — tracking in yards (Hungarian assignment) and snap detection
-- `src/nfl_intel/roles.py` — QB / REC / OL / DEF / DL from the formation; the look in words
+- `src/nfl_intel/roles.py` — QB / REC / OL / DEF / DL from the formation (+ charted shotgun/hash hints), corrected by what players do after the snap; the look in words
+- `src/nfl_intel/roles_check.py` — marks role assignment against Big Data Bowl snaps (`nfl roles-check`)
+- `src/nfl_intel/nflverse.py` — fetches the season's public play-by-play / charting (`nfl data`)
+- `src/nfl_intel/imaging.py` — `shrink`: fast resize for 4K frames with the geometry of cv2.resize
 - `src/nfl_intel/analysis.py` — `PlayAnalyzer` (play → anchor → snap → roles → value) and `AnalyzedTracker`, which wraps `PlayTracker`
 - `src/nfl_intel/topdown.py` — top-down view of an anchored play, `TopDownWriter` for `nfl run --topdown`
 - `src/nfl_intel/stats.py` — `LiveStats`: play segmentation, team counts, tracking health, value/plus-minus hooks
@@ -46,5 +49,5 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
 - `src/nfl_intel/calibrate.py` — click landmarks on a frame to build a homography
 - `src/nfl_intel/evaluate.py` — score a tracking CSV against hand-labeled truth (yards error, recall, ID switches, MOTA)
 - `src/nfl_intel/train.py` — keyframe pre-labeling, dataset YAML, two-stage YOLO fine-tune
-- `src/nfl_intel/cli.py` — `nfl` command: check, windows, overlay, capture, run, replay, eval, calibrate, prelabel, train, value-train, coverage-train, value-demo
+- `src/nfl_intel/cli.py` — `nfl` command: check, windows, overlay, capture, run, replay, eval, calibrate, prelabel, train, value-train, coverage-train, value-demo, data, roles-check
 - `docs/PRIOR_ART.md` — what exists elsewhere, how it runs/tests/views, ranked improvements

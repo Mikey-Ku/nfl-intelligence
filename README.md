@@ -60,7 +60,10 @@ uv run nfl eval outputs/play01_sideline.csv data/truth/play01.csv   # yards erro
 
 Useful flags on `overlay` and `run`: `--tracker bytetrack` (faster, fixed camera; the default
 BoT-SORT compensates for camera pans), `--tiles 2` (2×2 overlapping slices for tiny far-sideline
-players), `--weights yolo11s.pt` or your fine-tuned weights.
+players), `--weights yolo11m.pt` or your fine-tuned weights. The default is `yolo11s.pt`: on
+the test clip the nano model lost four players a frame to low confidence and the target
+receiver for most of the play, while the medium one found one more lineman at three times
+the cost. With analysis on, a 4K capture runs at about 18 frames a second on the M5.
 
 ## The plus/minus (pass value)
 
@@ -105,15 +108,41 @@ On a sideline-angle shot the pipeline works the play out on its own, in this ord
 5. **The value.** From the snap, every receiver is scored by the pass value model and the
    panel shows the best throw, the plus/minus against a typical play, and the coverage read.
 
-On the saved clip (Packers-Falcons, 2026 week 3) all three plays were matched, both
-sideline shots anchored from the end zone, and on Love's touchdown to Golden the model's
-best throw, for most of the 2.2 seconds after the snap that the clip covers, was the receiver
-who caught it. What it gets wrong today:
-linemen in a pile come out as one or two boxes, so heavy formations read badly (the goal-line
-run was charted with three in the backfield; we saw four); a stacked receiver can be missed;
-the typical-play baseline doesn't know about the red zone. Run plays get roles and a formation
-but no value: the model scores passes. Without the play-by-play file, or on the end-zone
-angle, the panel says what is missing instead of guessing.
+On the saved clip (Packers-Falcons, 2026 week 3) all three plays were matched and both
+sideline shots anchored from the end zone. On Love's touchdown to Golden the quarterback, all
+five eligible receivers and four rushers were named (the charting says four rushed), and the
+formation read "Shotgun, 3 x 1, 1 back", which is what was on the field. Golden was the
+model's best throw for the first second, then the tight end and the back took over as his
+defender closed; the charting calls the catch contested. The clip stops 2.2 seconds after
+the snap, before the ball is thrown.
+
+The snap is only looked for once the offense is at the line: the first version took the
+break of the huddle for the snap on the goal-line run.
+
+How good are the roles? `nfl roles-check` marks them against Big Data Bowl tracking, which
+has no linemen at all (a hard version of linemen lost in a pile), with 0.4 yd of noise added:
+
+| 2,572 pass plays, 2023 weeks 1-3 | formation alone | with the play's charting |
+|---|---|---|
+| quarterback picked out | 71% | 96% |
+| route runners named receivers | 92% | 98% |
+| coverage men named coverage | 94% | 95% |
+
+The charting (shotgun or under centre, which hash the ball is on) comes with the matched
+play. Without it, and with no linemen to show where the ball is, the quarterback is often
+confused with the back beside him; on film the linemen that are found close most of that gap.
+
+What it gets wrong today: linemen in a pile come out as a few boxes, so heavy formations
+read roughly (the goal-line run was charted with three in the backfield and seven in the
+box; we saw two and eight); officials are not told apart from players; the typical-play
+baseline doesn't know about the red zone. Run plays get roles and a formation but no value:
+the model scores passes. Without the play-by-play file, or on the end-zone angle, the panel
+says what is missing instead of guessing.
+
+```bash
+uv run nfl data --season 2026          # fetch this week's play-by-play and charting (public, no account)
+uv run nfl roles-check --weeks 1-3     # the table above
+```
 
 ## Fine-tuning the detector
 

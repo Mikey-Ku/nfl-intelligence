@@ -61,8 +61,14 @@ def sides(slots: list[Slot], xy: np.ndarray, offense_team: int, los: float) -> t
     return off, dfn
 
 
-def ball_spot(xy: np.ndarray, off: list[int], dfn: list[int], los: float) -> float:
-    """Where across the field the ball is: both lines crowd around it."""
+HASH_SPOT = {"L": HASH_HIGH, "R": HASH_LOW, "M": (HASH_LOW + HASH_HIGH) / 2.0}     # the offense's left is +y
+
+
+def ball_spot(xy: np.ndarray, off: list[int], dfn: list[int], los: float, hash_mark: str | None = None) -> float:
+    """Where across the field the ball is: on the charted hash mark when the play is known,
+    otherwise where both lines crowd around it."""
+    if hash_mark in HASH_SPOT:
+        return HASH_SPOT[hash_mark]
     crowd = [i for i in off + dfn if abs(xy[i, 0] - los) <= 2.5 and 14.0 <= xy[i, 1] <= FIELD_WIDTH - 14.0]
     if len(crowd) >= 3:
         y = float(np.median(xy[crowd, 1]))
@@ -73,14 +79,37 @@ def ball_spot(xy: np.ndarray, off: list[int], dfn: list[int], los: float) -> flo
     return float(np.clip(y, HASH_LOW, HASH_HIGH))
 
 
-def find_quarterback(xy: np.ndarray, off: list[int], los: float, ball: float, shotgun: bool | None = None) -> int | None:
+def lined_up(slots: list[Slot], xy_abs: np.ndarray, offense_team: int, los: float, need: int = 4) -> bool:
+    """Is the offense at the line? In the huddle, and on the walk up from it, nobody is
+    within three yards of the ball; in any formation most of the offense is."""
+    xy = np.asarray(xy_abs, dtype=np.float64).reshape(-1, 2)
+    off, dfn = sides(slots, xy, offense_team, los)
+    at_line = sum(1 for i in off if xy[i, 0] - los >= -3.0)
+    return at_line >= need and len(dfn) >= 4
+
+
+def find_quarterback(xy: np.ndarray, off: list[int], los: float, ball: float, shotgun: bool | None = None,
+                     sure: bool = False) -> int | None:
     """The passer: in the backfield, straight behind the ball.
 
     In the shotgun or pistol he is three to six yards deep with nobody between him and the
     centre. Under centre he is right behind a lineman, and any back stands behind him.
-    `shotgun` is what the play-by-play says, when the play is known; it settles which to look for.
+    `shotgun` is what the play-by-play says, when the play is known; it settles which to look
+    for. `sure` means the ball's spot is known (charted), not estimated from the crowd.
     """
     lane = [i for i in off if HASH_LOW - 1.3 <= xy[i, 1] <= HASH_HIGH + 1.3 and -BACKFIELD <= xy[i, 0] - los <= -0.6]
+    if shotgun is False:
+        # under centre he is the man on the ball's line, a yard or two back: behind the centre if we can see both
+        reach = 1.3 if sure else 1.0
+        close = [i for i in lane if xy[i, 0] - los >= -2.8 and abs(xy[i, 1] - ball) <= reach]
+        if close:
+            return min(close, key=lambda i: (round(abs(xy[i, 1] - ball) / 0.7), xy[i, 0]))
+        if sure:
+            return None
+    if shotgun is True and sure:
+        gun = [i for i in lane if -6.5 <= xy[i, 0] - los <= -2.8 and abs(xy[i, 1] - ball) <= 1.6]
+        if gun:
+            return min(gun, key=lambda i: abs(xy[i, 1] - ball))
 
     def someone_ahead(i: int) -> bool:
         return any(j != i and 0.3 <= xy[j, 0] - xy[i, 0] <= 1.6 and abs(xy[j, 1] - xy[i, 1]) <= 0.8 for j in off)
@@ -101,16 +130,19 @@ def find_quarterback(xy: np.ndarray, off: list[int], los: float, ball: float, sh
 
 
 def assign_roles(slots: list[Slot], xy_abs: np.ndarray, offense_team: int, los: float,
-                 shotgun: bool | None = None) -> dict[int, str]:
-    """Roles by slot id. `xy_abs` are the slots' positions, offense moving +x."""
+                 shotgun: bool | None = None, hash_mark: str | None = None) -> dict[int, str]:
+    """Roles by slot id. `xy_abs` are the slots' positions, offense moving +x.
+
+    `shotgun` and `hash_mark` ("L", "M", "R" from the offense's side) come from the play's
+    charting when the play is known; without them the formation alone decides."""
     xy = np.asarray(xy_abs, dtype=np.float64).reshape(-1, 2)
     roles: dict[int, str] = {s.id: "OFF" for s in slots}
     off, dfn = sides(slots, xy, offense_team, los)
     if len(off) < 4 or len(dfn) < 4:
         return roles
-    ball = ball_spot(xy, off, dfn, los)
+    ball = ball_spot(xy, off, dfn, los, hash_mark)
 
-    qb = find_quarterback(xy, off, los, ball, shotgun)
+    qb = find_quarterback(xy, off, los, ball, shotgun, sure=hash_mark in HASH_SPOT)
     if qb is not None:
         ball = float(np.clip(xy[qb, 1], HASH_LOW, HASH_HIGH))        # he stands straight behind it
 
@@ -133,7 +165,8 @@ def assign_roles(slots: list[Slot], xy_abs: np.ndarray, offense_team: int, los: 
     return roles
 
 
-def describe_look(xy_abs: np.ndarray, roles: list[str | None], los: float, shotgun: bool | None = None) -> tuple[str, str]:
+def describe_look(xy_abs: np.ndarray, roles: list[str | None], los: float, shotgun: bool | None = None,
+                  hash_mark: str | None = None) -> tuple[str, str]:
     """The formation in a football fan's words: ("Shotgun, 2 x 2, 1 back", "Two high, 6 in the box").
 
     Receivers are counted left x right of the ball from the offense's side. Linemen hidden in
@@ -146,8 +179,11 @@ def describe_look(xy_abs: np.ndarray, roles: list[str | None], los: float, shotg
         return "", ""
     qb = idx["QB"][0] if idx["QB"] else None
     near = [i for r in ("OL", "DL") for i in idx[r]]
-    ball = float(xy[qb, 1]) if qb is not None else (float(np.median(xy[near, 1])) if near else FIELD_WIDTH / 2.0)
-    ball = float(np.clip(ball, HASH_LOW, HASH_HIGH))
+    if hash_mark in HASH_SPOT:
+        ball = HASH_SPOT[hash_mark]
+    else:
+        ball = float(xy[qb, 1]) if qb is not None else (float(np.median(xy[near, 1])) if near else FIELD_WIDTH / 2.0)
+        ball = float(np.clip(ball, HASH_LOW, HASH_HIGH))
 
     backs = [i for i in idx["REC"] if xy[i, 0] - los <= -3.0 and abs(xy[i, 1] - ball) <= 5.0]
     left = [i for i in idx["REC"] if i not in backs and xy[i, 1] > ball]
@@ -157,7 +193,7 @@ def describe_look(xy_abs: np.ndarray, roles: list[str | None], los: float, shotg
         offense.append("Shotgun" if shotgun else "Under centre")
     elif qb is not None:
         offense.append("Shotgun" if xy[qb, 0] - los <= -2.8 else "Under centre")
-    if qb is None and len(idx["REC"]) < 4:
+    if len(idx["REC"]) < 4:                       # there are always five; with this few found, a count would mislead
         return ", ".join(offense + [f"{len(idx['REC'])} of 5 receivers found"]), _defense_look(xy, idx, los, ball)
     offense.append(f"{len(left)} x {len(right)}")
     if backs:
@@ -169,7 +205,34 @@ def describe_look(xy_abs: np.ndarray, roles: list[str | None], los: float, shotg
 
 def _defense_look(xy: np.ndarray, idx: dict, los: float, ball: float) -> str:
 
-    deep = [i for i in idx["DEF"] if xy[i, 0] - los >= 9.0]
-    box = [i for r in ("DEF", "DL") for i in idx[r] if xy[i, 0] - los <= 6.0 and abs(xy[i, 1] - ball) <= BOX + 1.0]
+    deep = [i for i in idx["DEF"] if xy[i, 0] - los >= 9.0 and abs(xy[i, 1] - ball) <= 14.0]     # a corner playing off isn't a safety
+    # the box: the men on the line out to the edge rushers, and the linebackers stacked behind them
+    box = [i for r in ("DEF", "DL") for i in idx[r]
+           if (xy[i, 0] - los <= 2.0 and abs(xy[i, 1] - ball) <= BOX + 3.3) or (xy[i, 0] - los <= 6.0 and abs(xy[i, 1] - ball) <= BOX + 0.3)]
     high = {0: "No deep safety", 1: "Single high", 2: "Two high"}.get(len(deep), f"{len(deep)} deep")
     return f"{high}, {len(box)}+ in the box"
+
+
+def update_roles(roles: dict[int, str], xy_abs: dict[int, np.ndarray], los: float, since_snap: float, passing: bool = True) -> list[int]:
+    """Correct roles from what players do after the snap. Returns the ids that changed.
+
+    Where a man stands says what he probably is; where he goes says what he is. A defender
+    who crosses the line is rushing. A man on the defensive line who backs off is covering.
+    On a pass, a "lineman" who runs downfield was a tight end: linemen can't.
+    """
+    changed = []
+    for sid, role in list(roles.items()):
+        if sid not in xy_abs:
+            continue
+        d = float(xy_abs[sid][0]) - los
+        new = role
+        if role == "DEF" and d < -0.7:
+            new = "DL"
+        elif role == "DL" and since_snap >= 0.6 and d >= 2.5:
+            new = "DEF"
+        elif role == "OL" and passing and 0.4 <= since_snap <= 2.5 and d >= 1.5:
+            new = "REC"
+        if new != role:
+            roles[sid] = new
+            changed.append(sid)
+    return changed
