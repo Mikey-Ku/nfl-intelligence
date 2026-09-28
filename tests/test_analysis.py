@@ -17,7 +17,9 @@ class SeparationModel(PassValueModel):
     """Stand-in model: catch chance grows with separation, yards with depth."""
 
     def __init__(self):
-        super().__init__(None, None, {"baseline": [5.0] * 60})
+        super().__init__(None, None, {"baseline": [5.0] * 60,
+                                      "baseline_by_goal": {"edges": [10.0, 20.0, 40.0], "plays": [9, 9, 9, 9],
+                                                           "curves": [[2.0] * 60, [4.0] * 60, [5.0] * 60, [6.0] * 60]}})
 
     def score(self, X):
         sep, depth = X[:, FEATURES.index("sep1")], X[:, FEATURES.index("depth")]
@@ -31,13 +33,23 @@ def _record(play_type="pass"):
                       charted={"qb_location": "S", "n_defense_box": 6, "n_pass_rushers": 4})
 
 
+class FakeRegistrar:
+    """A mapping that is already known: ten pixels to the yard."""
+
+    def __init__(self):
+        self.H = np.diag([0.1, 0.1, 1.0])
+        self.rect = (0, 0, 1200, 534)
+        self.lock_id = 1
+        self.locked = True
+
+
 class FakeTracker:
     """Stands in for PlayTracker: hands out prepared frames."""
 
-    def __init__(self, frames):
+    def __init__(self, frames, registrar=None):
         self.frames = {f.frame: f for f in frames}
         self.field = None
-        self.registrar = None
+        self.registrar = registrar
         self.shot = 0
 
     def process(self, frame, idx, t):
@@ -92,7 +104,8 @@ def test_the_panel_is_told_what_is_going_on(qt_app):
     assert any("Waiting for the snap" in n for n in notes)
     last = snaps[-1]
     assert last.value is not None and last.value_note == "" and last.value_unit == "yd"
-    assert last.delta_note == "vs a typical play" and last.value_delta == pytest.approx(last.value - 5.0)
+    assert last.delta_note == "vs typical from here"
+    assert last.value_delta == pytest.approx(last.value - 4.0)      # 15 yards out: compared with plays from 10 to 20 out
     assert last.clock_text.startswith("snap +")
     assert last.team_names[:2] == ("GB offense", "ATL defense")
     names = [name for name, _ in last.rows]
@@ -182,3 +195,26 @@ def test_video_source_uses_the_real_capture_times(tmp_path):
     src = VideoSource(str(path))
     assert [round(t, 2) for _, t, _ in src] == [0.0, 0.05, 0.1, 0.15, 0.2]
     assert src.fps == pytest.approx(20.0)
+
+
+def test_typical_value_depends_on_where_the_play_starts():
+    m = SeparationModel()
+    assert m.typical(1.0) == 5.0
+    assert [m.typical(1.0, to_goal=g) for g in (3, 10, 15, 20, 39.9, 40, 75)] == [2.0, 4.0, 4.0, 5.0, 5.0, 6.0, 6.0]
+    assert PassValueModel(None, None, {"baseline": [5.0] * 60}).typical(1.0, to_goal=15) == 5.0      # an older model: one curve
+    assert PassValueModel(None, None).typical(1.0, to_goal=15) == 0.0
+
+
+def test_the_lines_television_draws_are_handed_to_the_overlay():
+    frames, _ = film(direction=-1, los_rel=40.0)
+    tracker = AnalyzedTracker(FakeTracker(frames, FakeRegistrar()), PlayAnalyzer(SeparationModel(), record=_record()))
+    img = np.zeros((534, 1200, 3), np.uint8)
+    results = [tracker.process(img, f.frame, f.t) for f in frames]
+    assert results[0].lines == []                                   # nothing to draw before the field is anchored
+    lines = dict(results[-1].lines)
+    assert set(lines) == {"scrimmage", "to gain"}
+    assert {round(x) for x, _ in lines["scrimmage"]} == {400}       # the mapping's 40, ten pixels to the yard
+    assert {round(x) for x, _ in lines["to gain"]} == {330}         # seven yards on, and the offense is going toward -x
+    from nfl_intel.draw import annotate
+
+    assert (annotate(img, results[-1])[:, 400] != 0).any()

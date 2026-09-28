@@ -74,6 +74,7 @@ after the snap.
 
 ```bash
 uv run nfl value-train                 # ~1 min: trains on 2023 weeks 1-14, tests on 15-18
+uv run nfl value-baseline              # only recompute the typical-play curves, by field position
 uv run nfl coverage-train              # man/zone and coverage shell from defender movement
 uv run nfl value-demo --week 16        # replays real plays top-down with the live panel
 ```
@@ -106,7 +107,13 @@ On a sideline-angle shot the pipeline works the play out on its own, in this ord
 4. **The snap and the roles.** The snap is where a still formation starts moving. Just before
    it, each player gets a role from where he stands: side of the ball first, jersey second.
 5. **The value.** From the snap, every receiver is scored by the pass value model and the
-   panel shows the best throw, the plus/minus against a typical play, and the coverage read.
+   panel shows the best throw, the plus/minus against a typical play from the same stretch
+   of field, and the coverage read.
+6. **Who is out there.** NFL Pro's "On Field Players" list is read too: the personnel
+   grouping ("11 personnel v nickel", "jumbo, 7 linemen") and, where the formation leaves no
+   doubt, names on the receivers (a lone back, a lone tight end, the man the ball went to).
+
+The line of scrimmage and the line to gain are drawn on the video the way television does.
 
 On the saved clip (Packers-Falcons, 2026 week 3) all three plays were matched and both
 sideline shots anchored from the end zone. On Love's touchdown to Golden the quarterback, all
@@ -135,7 +142,8 @@ confused with the back beside him; on film the linemen that are found close most
 What it gets wrong today: linemen in a pile come out as a few boxes, so heavy formations
 read roughly (the goal-line run was charted with three in the backfield and seven in the
 box; we saw two and eight); officials are not told apart from players; the typical-play
-baseline doesn't know about the red zone. Run plays get roles and a formation but no value:
+names for receivers on the same side can't be told apart without reading jersey numbers.
+Run plays get roles and a formation but no value:
 the model scores passes. Without the play-by-play file, or on the end-zone angle, the panel
 says what is missing instead of guessing.
 

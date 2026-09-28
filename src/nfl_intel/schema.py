@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import csv
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 CSV_FIELDS = [
@@ -41,6 +41,7 @@ class FrameResult:
     players: list[TrackedPlayer]
     shot: int = 0                          # camera shot number; goes up at every cut
     anchored: bool = False                 # yards are on the real field, offense moving +x (else relative to the mapping)
+    lines: list = field(default_factory=list)   # (name, [(x, y), ...] in source pixels): "scrimmage", "to gain"
 
 
 def _fmt(v: float | None) -> str:

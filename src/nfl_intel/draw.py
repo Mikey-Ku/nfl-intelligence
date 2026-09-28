@@ -9,6 +9,7 @@ from .field import draw_field, field_to_image
 from .schema import FrameResult
 
 TEAM_COLORS = {0: (0, 200, 255), 1: (255, 120, 60), None: (200, 200, 200)}  # BGR
+LINE_COLORS = {"scrimmage": (255, 200, 80), "to gain": (60, 220, 255)}       # as on television: blue and yellow
 
 
 def team_color(team: int | None) -> tuple[int, int, int]:
@@ -31,6 +32,10 @@ def player_label(p) -> str:
 
 def annotate(frame: np.ndarray, result: FrameResult, thickness: int = 2) -> np.ndarray:
     out = frame.copy()
+    for name, pts in result.lines:
+        if len(pts) >= 2:
+            cv2.polylines(out, [np.asarray(pts, dtype=np.int32).reshape(-1, 1, 2)], False, LINE_COLORS.get(name, (255, 255, 255)),
+                          max(2, frame.shape[0] // 400), cv2.LINE_AA)
     for p in result.players:
         x1, y1, x2, y2 = (int(round(v)) for v in p.box)
         color = team_color(p.team)

@@ -265,3 +265,19 @@ def test_roles_are_marked_against_tracked_plays():
     alone = score_roles(plays, hints, use_hints=False)
     assert alone.counts["gun"] == 2 and alone.share("qb right under", "under") == 0.0     # nobody to stand behind
     assert len(told.lines()) == 7
+
+
+def test_the_on_field_list_caps_the_receivers():
+    # goal line: seven linemen, two tight ends and a back; a guard and a tackle look like receivers to the box
+    jumbo = [("QB", -2.2, BALL), ("RB", -6.5, BALL)] + [("OL", -1.4, BALL + k * 1.6) for k in (-3, -2, -1, 0, 1, 2, 3)] \
+        + [("TE", -1.5, BALL + 6.4), ("TE", -1.5, BALL - 6.4)] + SHOTGUN[11:]
+    s, xy = slots(jumbo)
+    alone = assign_roles(s, xy, 0, LOS, shotgun=False)
+    assert sum(r == "OL" for r in alone.values()) == 5 and sum(r == "REC" for r in alone.values()) == 5
+    told = assign_roles(s, xy, 0, LOS, shotgun=False, linemen=7, eligible=3)
+    assert [told[i] for i in range(2, 9)] == ["OL"] * 7
+    assert told[0] == "QB" and [told[i] for i in (1, 9, 10)] == ["REC"] * 3
+    # linemen hidden in the pile: the cap still holds with what was found
+    s, xy = slots(jumbo, drop=(4, 5, 6))
+    told = assign_roles(s, xy, 0, LOS, shotgun=False, linemen=7, eligible=3)
+    assert sum(r == "REC" for r in told.values()) == 3

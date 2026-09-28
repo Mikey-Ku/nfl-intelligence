@@ -78,6 +78,7 @@ class LiveStats:
         team_names_fn: Callable[[], tuple[str, str, str] | None] | None = None,
         rows_always: bool = False,
         clock_text_fn: Callable[[], str] | None = None,
+        delta_note: str = "vs a typical play",
     ):
         self.window = window
         self.settle = settle
@@ -96,6 +97,7 @@ class LiveStats:
         self.value_note_fn = value_note_fn
         self.team_names_fn = team_names_fn
         self.clock_text_fn = clock_text_fn
+        self.delta_note = delta_note
         self.rows_always = rows_always        # the caller has rows to show even without yards (the play's name)
         self.play = 0
         self._fps = 0.0
@@ -224,7 +226,7 @@ class LiveStats:
             on_field_note=self.on_field_note,
             value_note=self.value_note_fn() if self.value_note_fn is not None else "",
             clock_text=self.clock_text_fn() if self.clock_text_fn is not None else "",
-            delta_note="vs a typical play" if self.baseline_fn is not None else "since the snap",
+            delta_note=self.delta_note if self.baseline_fn is not None else "since the snap",
         )
 
 

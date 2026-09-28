@@ -88,13 +88,26 @@ def parse_header(lines: list[str]) -> PlayHeader:
     return h
 
 
-def read_header(frame: np.ndarray, downscale: int = 2) -> PlayHeader:
-    """OCR the captured window and parse the play header. About 0.2 s; call it once per shot."""
+def read_screen(frame: np.ndarray, downscale: int = 2):
+    """OCR the captured window once: the play header, and the "On Field Players" list if it
+    is showing. Under a second; call it once per shot."""
     from .ocr import read_text
+    from .personnel import parse_on_field
 
     small = frame[::downscale, ::downscale] if downscale > 1 else frame
-    boxes = read_text(np.ascontiguousarray(small))
-    return parse_header([b.text for b in boxes if b.confidence >= 0.3])
+    boxes = [b for b in read_text(np.ascontiguousarray(small)) if b.confidence >= 0.3]
+    on_field = None
+    head = next((b for b in boxes if "ON FIELD" in b.text.upper()), None)
+    if head is not None:
+        # the list again at full size: its one-letter positions (C, G, T, S) are too small at half size
+        x0 = max(0, int(head.box[0] * downscale) - 40)
+        y0 = max(0, int(head.box[1] * downscale) - 20)
+        on_field = parse_on_field([b for b in read_text(np.ascontiguousarray(frame[y0:, x0:])) if b.confidence >= 0.3])
+    return parse_header([b.text for b in boxes]), on_field
+
+
+def read_header(frame: np.ndarray, downscale: int = 2) -> PlayHeader:
+    return read_screen(frame, downscale)[0]
 
 
 def load_play_by_play(season: int, root: str | Path = NFLVERSE):
@@ -154,6 +167,7 @@ class PlayRecord:
     pass_location: str = ""                  # left / middle / right, from the offense's side
     shotgun: bool | None = None              # the play-by-play says whether the quarterback was in the shotgun
     charted: dict = field(default_factory=dict)      # FTN: qb_location, n_defense_box, n_pass_rushers, ...
+    on_field: object = None                  # personnel.OnField, when the list was on screen
 
     @property
     def hash_mark(self) -> str | None:

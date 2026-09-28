@@ -113,9 +113,16 @@ class PassValueModel:
             raise ValueError("model was trained with a different feature list; retrain with `nfl value-train`")
         return cls(d["catch"], d["yards"], d.get("meta"))
 
-    def typical(self, clock: float, hz: float = 10.0) -> float:
-        """What a typical play is worth this long after the snap (0 if the model has no curve)."""
+    def typical(self, clock: float, hz: float = 10.0, to_goal: float | None = None) -> float:
+        """What a typical play is worth this long after the snap (0 if the model has no curve).
+
+        With `to_goal`, the yards from the line of scrimmage to the goal line, the comparison
+        is with plays from the same stretch of field."""
         curve = self.meta.get("baseline") or []
+        by_goal = self.meta.get("baseline_by_goal")
+        if to_goal is not None and by_goal:
+            edges = by_goal["edges"]
+            curve = by_goal["curves"][sum(1 for e in edges if to_goal >= e)]
         if not curve:
             return 0.0
         return float(curve[min(len(curve) - 1, max(0, int(round(clock * hz))))])

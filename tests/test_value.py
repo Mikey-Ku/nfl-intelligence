@@ -154,3 +154,19 @@ def test_coverage_features_and_read():
     model = CoverageModel(Fake([0.3, 0.7]), Fake([0.2, 0.8]))
     read = model.read(xy, defenders, play.receivers, play.los, 40)
     assert read.man == 0.7 and read.shell == SHELLS[4] and read.text == "Man 70%, Cover 3 80%"
+
+
+def test_typical_curves_by_field_position(monkeypatch):
+    import nfl_intel.value_train as vt
+
+    near, far = _play(), _play()
+    near.los, far.los = 98.0, 40.0                       # 12 yards out and 70 yards out
+    near.xy = near.xy + np.array([68.0, 0.0])
+    far.xy = far.xy + np.array([10.0, 0.0])
+    monkeypatch.setattr(vt, "iter_plays", lambda week, root, outcomes: [near, far])
+    monkeypatch.setattr(vt, "load_outcomes", lambda path: None)
+    monkeypatch.setattr(vt, "_curve", lambda total, count, fallback=None, enough=50: [float(v) for v in total / np.maximum(count, 1)])
+    overall, by_goal = vt.typical_value_curves(SeparationModel(), [1])
+    assert by_goal["edges"] == [10.0, 20.0, 40.0] and by_goal["plays"] == [0, 1, 0, 1]
+    assert len(overall) == 61 and len(by_goal["curves"]) == 4
+    assert overall[10] == pytest.approx((by_goal["curves"][1][10] + by_goal["curves"][3][10]) / 2)

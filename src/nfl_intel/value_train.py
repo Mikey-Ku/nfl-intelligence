@@ -93,10 +93,11 @@ def train(root=DEFAULT_ROOT, outcomes_path=DEFAULT_OUTCOMES, out: str | Path = D
         report["importance"] = sorted(zip(FEATURES, imp.importances_mean.round(4).tolist()), key=lambda kv: -kv[1])
     except Exception:                                   # pragma: no cover
         report["importance"] = []
-    baseline = typical_value_curve(model, TRAIN_WEEKS, root, outcomes_path)
+    baseline, by_goal = typical_value_curves(model, TRAIN_WEEKS, root, outcomes_path)
     report["baseline"] = baseline
+    report["baseline_by_goal"] = by_goal
     model.meta = {"train_weeks": list(TRAIN_WEEKS), "test_weeks": list(TEST_WEEKS), "noise": noise,
-                  "baseline": baseline,
+                  "baseline": baseline, "baseline_by_goal": by_goal,
                   "test": {k: v for k, v in report["test_clean"].items() if k != "calibration"}}
     model.save(out)
     if verbose:
@@ -104,22 +105,65 @@ def train(root=DEFAULT_ROOT, outcomes_path=DEFAULT_OUTCOMES, out: str | Path = D
     return report
 
 
-def typical_value_curve(model: PassValueModel, weeks, root=DEFAULT_ROOT, outcomes_path=DEFAULT_OUTCOMES, seconds: float = 6.0) -> list[float]:
-    """Average play value at each tenth of a second after the snap, over plays still going."""
+GOAL_EDGES = (10.0, 20.0, 40.0)        # yards to the goal line at the snap: goal line, red zone, scoring range, open field
+
+
+def _curve(total: np.ndarray, count: np.ndarray, fallback: list[float] | None = None, enough: int = 50) -> list[float]:
+    """Mean per tenth of a second where enough plays were still going; held flat after that."""
+    curve = np.where(count >= enough, total / np.maximum(count, 1), np.nan)
+    seen = curve[~np.isnan(curve)]
+    if not len(seen):
+        return list(fallback) if fallback is not None else [0.0] * len(curve)
+    last = float(seen[-1])
+    return [float(v) if not np.isnan(v) else last for v in curve]
+
+
+def typical_value_curves(model: PassValueModel, weeks, root=DEFAULT_ROOT, outcomes_path=DEFAULT_OUTCOMES, seconds: float = 6.0,
+                         edges=GOAL_EDGES) -> tuple[list[float], dict]:
+    """Average play value at each tenth of a second after the snap, over plays still going:
+    once for every play, and once for each stretch of field, because fifteen yards from the
+    goal line there are only fifteen yards to be had."""
     from .demo import score_plays
 
     outcomes = load_outcomes(outcomes_path)
     n = int(seconds * HZ) + 1
-    total, count = np.zeros(n), np.zeros(n)
+    total, count = np.zeros((len(edges) + 2, n)), np.zeros((len(edges) + 2, n))
     for week in weeks:
         plays = [p for p in iter_plays(week, root, outcomes) if p.qb >= 0 and p.receivers and len(p.xy) >= 3]
         for sp in score_plays(plays, model):
             k = min(n, len(sp.values))
-            total[:k] += sp.values[:k]
-            count[:k] += 1
-    curve = np.where(count >= 50, total / np.maximum(count, 1), np.nan)
-    last = float(curve[~np.isnan(curve)][-1])
-    return [float(v) if not np.isnan(v) else last for v in curve]
+            b = 1 + int(np.searchsorted(edges, 110.0 - sp.play.los, side="right"))
+            for row in (0, b):
+                total[row, :k] += sp.values[:k]
+                count[row, :k] += 1
+    overall = _curve(total[0], count[0])
+    by_goal = {"edges": list(edges), "plays": [int(c[0]) for c in count[1:]],
+               "curves": [_curve(total[i], count[i], overall) for i in range(1, len(edges) + 2)]}
+    return overall, by_goal
+
+
+def typical_value_curve(model: PassValueModel, weeks, root=DEFAULT_ROOT, outcomes_path=DEFAULT_OUTCOMES, seconds: float = 6.0) -> list[float]:
+    return typical_value_curves(model, weeks, root, outcomes_path, seconds)[0]
+
+
+def rebaseline(path: str | Path = DEFAULT_MODEL, root=DEFAULT_ROOT, outcomes_path=DEFAULT_OUTCOMES, verbose: bool = True) -> dict:
+    """Recompute the typical-play curves for a model already trained, and save it again."""
+    model = PassValueModel.load(path)
+    baseline, by_goal = typical_value_curves(model, TRAIN_WEEKS, root, outcomes_path)
+    model.meta.update({"baseline": baseline, "baseline_by_goal": by_goal})
+    model.save(path)
+    if verbose:
+        print_baselines(baseline, by_goal)
+    return by_goal
+
+
+def print_baselines(baseline: list[float], by_goal: dict | None) -> None:
+    at = [t for t in (0, 1, 2, 3, 4, 5) if int(t * HZ) < len(baseline)]
+    print("typical play value by time since the snap: " + "  ".join(f"{t:.0f}s {baseline[int(t * HZ)]:.1f}" for t in at))
+    if by_goal:
+        names = ["inside the 10"] + [f"{a:.0f} to {b:.0f} yd out" for a, b in zip(by_goal["edges"], by_goal["edges"][1:])] + [f"beyond {by_goal['edges'][-1]:.0f}"]
+        for name, curve, n in zip(names, by_goal["curves"], by_goal["plays"]):
+            print(f"   {name:16s} ({n:5d} plays): " + "  ".join(f"{t:.0f}s {curve[int(t * HZ)]:.1f}" for t in at))
 
 
 def print_report(report: dict, out) -> None:
@@ -133,7 +177,7 @@ def print_report(report: dict, out) -> None:
         print(f"  expected yards per throw {r['expected_yards_mean']:.2f} vs actual {r['actual_yards_mean']:.2f}")
         print("  calibration (predicted -> actual, plays): " + "  ".join(f"{a:.0%}->{b:.0%} ({n})" for a, b, n in r["calibration"]))
     if report.get("baseline"):
-        b = report["baseline"]
-        print("\ntypical play value by time since the snap: " + "  ".join(f"{t:.0f}s {b[int(t * HZ)]:.1f}" for t in (0, 1, 2, 3, 4, 5) if int(t * HZ) < len(b)))
+        print()
+        print_baselines(report["baseline"], report.get("baseline_by_goal"))
     if report.get("importance"):
         print("\nwhat the catch model leans on: " + ", ".join(f"{k} {v:.3f}" for k, v in report["importance"][:8]))

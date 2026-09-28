@@ -130,11 +130,13 @@ def find_quarterback(xy: np.ndarray, off: list[int], los: float, ball: float, sh
 
 
 def assign_roles(slots: list[Slot], xy_abs: np.ndarray, offense_team: int, los: float,
-                 shotgun: bool | None = None, hash_mark: str | None = None) -> dict[int, str]:
+                 shotgun: bool | None = None, hash_mark: str | None = None, linemen: int | None = None,
+                 eligible: int | None = None) -> dict[int, str]:
     """Roles by slot id. `xy_abs` are the slots' positions, offense moving +x.
 
     `shotgun` and `hash_mark` ("L", "M", "R" from the offense's side) come from the play's
-    charting when the play is known; without them the formation alone decides."""
+    charting when the play is known; `linemen` and `eligible` (how many of each are on the
+    field) from the on-field list. Without them the formation alone decides."""
     xy = np.asarray(xy_abs, dtype=np.float64).reshape(-1, 2)
     roles: dict[int, str] = {s.id: "OFF" for s in slots}
     off, dfn = sides(slots, xy, offense_team, los)
@@ -146,10 +148,19 @@ def assign_roles(slots: list[Slot], xy_abs: np.ndarray, offense_team: int, los: 
     if qb is not None:
         ball = float(np.clip(xy[qb, 1], HASH_LOW, HASH_HIGH))        # he stands straight behind it
 
-    # linemen: on the ball, inside the box, the five nearest the ball
+    # linemen: on the ball, inside the box, the five nearest the ball (more when an extra one is in)
+    n_line = max(5, linemen or 5)
     line = [i for i in off if i != qb and xy[i, 0] - los >= -2.6 and abs(xy[i, 1] - ball) <= BOX]
     line.sort(key=lambda i: abs(xy[i, 1] - ball))
-    for i in line[:5]:
+    line = line[:n_line]
+    if eligible is not None:
+        # more receivers than the offense has on the field: the extras nearest the ball are linemen the box missed
+        spare = [i for i in off if i != qb and i not in line]
+        extra = len(spare) - eligible
+        if extra > 0:
+            spare.sort(key=lambda i: (xy[i, 0] - los < -2.6, abs(xy[i, 1] - ball)))
+            line += spare[:extra]
+    for i in line:
         roles[slots[i].id] = "OL"
     if qb is not None:
         roles[slots[qb].id] = "QB"
@@ -166,7 +177,7 @@ def assign_roles(slots: list[Slot], xy_abs: np.ndarray, offense_team: int, los: 
 
 
 def describe_look(xy_abs: np.ndarray, roles: list[str | None], los: float, shotgun: bool | None = None,
-                  hash_mark: str | None = None) -> tuple[str, str]:
+                  hash_mark: str | None = None, eligible: int | None = None) -> tuple[str, str]:
     """The formation in a football fan's words: ("Shotgun, 2 x 2, 1 back", "Two high, 6 in the box").
 
     Receivers are counted left x right of the ball from the offense's side. Linemen hidden in
@@ -193,8 +204,9 @@ def describe_look(xy_abs: np.ndarray, roles: list[str | None], los: float, shotg
         offense.append("Shotgun" if shotgun else "Under centre")
     elif qb is not None:
         offense.append("Shotgun" if xy[qb, 0] - los <= -2.8 else "Under centre")
-    if len(idx["REC"]) < 4:                       # there are always five; with this few found, a count would mislead
-        return ", ".join(offense + [f"{len(idx['REC'])} of 5 receivers found"]), _defense_look(xy, idx, los, ball)
+    there = eligible or 5                         # five, unless an extra lineman is in for one
+    if len(idx["REC"]) < there - 1:               # with this few found, a count would mislead
+        return ", ".join(offense + [f"{len(idx['REC'])} of {there} receivers found"]), _defense_look(xy, idx, los, ball)
     offense.append(f"{len(left)} x {len(right)}")
     if backs:
         offense.append(f"{len(backs)} back" + ("s" if len(backs) > 1 else ""))

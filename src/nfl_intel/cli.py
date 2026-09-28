@@ -171,16 +171,7 @@ def _shot(frame, res, snap, tracker, path: Path) -> None:
     if registrar is not None and registrar.locked and registrar.rect is not None:
         from .registration import draw_grid
 
-        if anchor is None:
-            base = draw_grid(frame, registrar.H, registrar.rect)
-        else:
-            from .topdown import FIRST_DOWN, LOS
-
-            marks = [(anchor.los_rel, LOS)]
-            to_go = analysis.record.header.distance if analysis.record is not None else None
-            if to_go is not None and anchor.los_abs + to_go < 110:
-                marks.append((anchor.to_relative_x(anchor.los_abs + to_go), FIRST_DOWN))
-            base = draw_grid(frame, registrar.H, registrar.rect, label=anchor.yard_name, marks=marks)
+        base = draw_grid(frame, registrar.H, registrar.rect, label=None if anchor is None else anchor.yard_name)
     img = annotate(base, res)
     field = getattr(tracker, "field", None)
     if field is not None:
@@ -223,6 +214,9 @@ def _narrate(tracker, res, told: set) -> None:
     if a.record is not None and a.record.header.complete:
         found = f"{a.record.play_type}, {a.record.outcome}" if a.record.matched else "not found in the play-by-play"
         say("play", f"play: {a.record.summary}  ({found})")
+        listed = a.record.on_field
+        if listed is not None and listed.personnel:
+            say("personnel", f"on the field: {listed.offense_team} in {listed.personnel}; {listed.defense_team} in {listed.package}")
     if a.anchor is not None:
         say("anchor", f"line of scrimmage on the {a.record.header.side or ''} {a.record.header.yard}".replace("  ", " ")
             + f", settled by the {a.anchor.source}")
@@ -231,7 +225,7 @@ def _narrate(tracker, res, told: set) -> None:
     if a.snap_t is not None:
         say("snap", f"snap at {a.snap_t:.1f}s: {a.look[0]} | {a.look[1]}")
     if a.value is not None:
-        say("value", f"first value {a.value:.1f} yd, best throw {a.best.label}")
+        say("value", f"first value {a.value:.1f} yd, best throw {a.best.label}; receivers " + ", ".join(s.label for s in a.scores))
 
 
 def cmd_overlay(args) -> None:
@@ -435,6 +429,12 @@ def cmd_train(args) -> None:
     print(f"best weights: {best}\nuse them with: nfl overlay --weights {best} ...")
 
 
+def cmd_value_baseline(args) -> None:
+    from .value_train import rebaseline
+
+    rebaseline(args.model, args.data, args.outcomes)
+
+
 def cmd_value_train(args) -> None:
     from .value_train import train
 
@@ -604,6 +604,12 @@ def build_parser() -> argparse.ArgumentParser:
     vt.add_argument("--out", default="models/pass_value.pkl")
     vt.add_argument("--noise", type=float, default=0.3, help="position noise (yards) added to a copy of the training data")
     vt.set_defaults(func=cmd_value_train)
+
+    vb = sub.add_parser("value-baseline", help="recompute the typical-play curves for the trained model (no retraining)")
+    vb.add_argument("--data", default="data/bdb/2026-prediction")
+    vb.add_argument("--outcomes", default="data/nflverse/play_by_play_2023.parquet")
+    vb.add_argument("--model", default="models/pass_value.pkl")
+    vb.set_defaults(func=cmd_value_baseline)
 
     ct = sub.add_parser("coverage-train", help="train coverage recognition (man/zone and shell) on Big Data Bowl plays")
     ct.add_argument("--data", default="data/bdb/2026-prediction")

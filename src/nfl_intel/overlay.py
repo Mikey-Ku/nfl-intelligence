@@ -17,7 +17,7 @@ from PySide6.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
 from .capture import Region, ScreenSource
-from .draw import minimap, player_label, team_color
+from .draw import LINE_COLORS, minimap, player_label, team_color
 from .field import draw_field
 from .panel import render_panel
 from .schema import FrameResult
@@ -105,6 +105,11 @@ class OverlayWindow(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setFont(QFont("Menlo", 11))
         s = 1.0 / self.scale
+        for name, pts in self.result.lines:
+            b, g, r = LINE_COLORS.get(name, (255, 255, 255))
+            painter.setPen(QPen(QColor(r, g, b, 200), 3))
+            for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+                painter.drawLine(int(ax * s), int(ay * s), int(bx * s), int(by * s))
         for p in self.result.players:
             b, g, r = team_color(p.team)
             painter.setPen(QPen(QColor(r, g, b, 230), 2))

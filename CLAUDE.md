@@ -29,6 +29,7 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
 - `src/nfl_intel/pipeline.py` — `PlayTracker`: one frame in, `FrameResult` out
 - `src/nfl_intel/ocr.py` — text off a frame with Apple Vision (on-device)
 - `src/nfl_intel/playinfo.py` — NFL Pro's play header → the play's row in nflverse play-by-play and FTN charting
+- `src/nfl_intel/personnel.py` — NFL Pro's "On Field Players" list → personnel grouping, names for receivers the formation identifies
 - `src/nfl_intel/anchor.py` — pins the relative mapping to the real field: line of scrimmage, direction, end-zone finder
 - `src/nfl_intel/fieldtrack.py` — tracking in yards (Hungarian assignment) and snap detection
 - `src/nfl_intel/roles.py` — QB / REC / OL / DEF / DL from the formation (+ charted shotgun/hash hints), corrected by what players do after the snap; the look in words
@@ -49,5 +50,5 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
 - `src/nfl_intel/calibrate.py` — click landmarks on a frame to build a homography
 - `src/nfl_intel/evaluate.py` — score a tracking CSV against hand-labeled truth (yards error, recall, ID switches, MOTA)
 - `src/nfl_intel/train.py` — keyframe pre-labeling, dataset YAML, two-stage YOLO fine-tune
-- `src/nfl_intel/cli.py` — `nfl` command: check, windows, overlay, capture, run, replay, eval, calibrate, prelabel, train, value-train, coverage-train, value-demo, data, roles-check
+- `src/nfl_intel/cli.py` — `nfl` command: check, windows, overlay, capture, run, replay, eval, calibrate, prelabel, train, value-train, coverage-train, value-baseline, value-demo, data, roles-check
 - `docs/PRIOR_ART.md` — what exists elsewhere, how it runs/tests/views, ranked improvements

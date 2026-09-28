@@ -18,11 +18,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import cv2
 import numpy as np
 
 from .anchor import Anchor, anchor_play, find_end_zone
+from .field import FIELD_WIDTH
 from .fieldtrack import FieldTracker, SnapDetector
-from .playinfo import PlayRecord, match_play, read_header
+from .personnel import name_players
+from .playinfo import PlayRecord, match_play, read_screen
 from .roles import assign_roles, describe_look, lined_up, update_roles
 from .schema import FrameResult, TrackedPlayer
 from .stats import LiveStats
@@ -59,6 +62,11 @@ class AnalysisView:
         self.last = Analysis()
         self.history: list[tuple[float, list[ReceiverScore]]] = []      # (seconds since snap, scores)
         self.has_model = True
+
+    def to_goal(self) -> float | None:
+        """Yards from the line of scrimmage to the goal line being attacked."""
+        a = self.last
+        return None if a.anchor is None else 110.0 - a.anchor.los_abs
 
     def clock_text(self) -> str:
         a = self.last
@@ -145,8 +153,12 @@ class AnalysisView:
             most_open = max(a.scores, key=lambda s: s.separation)
             rows.append(("Best throw", f"{best.label}  {best.p_catch:.0%} caught, {best.yards_if_caught:.0f} yd"))
             rows.append(("Most open", f"{most_open.label}  {most_open.separation:.1f} yd"))
+        listed = a.record.on_field if a.record is not None else None
+        before = a.since_snap is None
         if a.look[0]:
             rows.append(("Offense", a.look[0]))
+        if listed is not None and listed.personnel and (before or over):
+            rows.append(("Personnel", listed.personnel.split(":")[0] + " v " + listed.package.split(",")[0].lower()))
         if a.coverage and a.since_snap is not None:
             rows.append(("Coverage read", a.coverage))
         elif a.look[1]:
@@ -201,7 +213,9 @@ class PlayAnalyzer(AnalysisView):
             return
         self._header_tries += 1
         try:
-            self.record = match_play(read_header(frame))
+            header, on_field = read_screen(frame)
+            self.record = match_play(header)
+            self.record.on_field = on_field
         except Exception as e:                                   # OCR is a convenience, never a reason to stop
             self.record = None
             self.last.notes.append(f"could not read the play header: {e}")
@@ -226,8 +240,8 @@ class PlayAnalyzer(AnalysisView):
         if len(slots) < 10:
             return
         xy = self.anchor.to_absolute(np.array([s.xy for s in slots]))
-        roles = assign_roles(slots, xy, self.anchor.offense_team, self.anchor.los_abs, self._shotgun, self._hash)
-        look = describe_look(xy, [roles.get(s.id) for s in slots], self.anchor.los_abs, self._shotgun, self._hash)
+        roles = assign_roles(slots, xy, self.anchor.offense_team, self.anchor.los_abs, self._shotgun, self._hash, *self._listed)
+        look = describe_look(xy, [roles.get(s.id) for s in slots], self.anchor.los_abs, self._shotgun, self._hash, self._listed[1])
         if look[0]:
             self.look = look
 
@@ -238,6 +252,16 @@ class PlayAnalyzer(AnalysisView):
     @property
     def _hash(self) -> str | None:
         return self.record.hash_mark if (self.record is not None and self.record.matched) else None
+
+    @property
+    def _listed(self) -> tuple[int | None, int | None]:
+        """How many linemen and how many eligible receivers the on-field list shows."""
+        from .personnel import BACKS, LINEMEN
+
+        listed = self.record.on_field if self.record is not None else None
+        if listed is None or len(listed.offense) != 11:
+            return None, None
+        return listed.count(listed.offense, LINEMEN), listed.count(listed.offense, BACKS | {"TE", "WR"})
 
     @property
     def _passing(self) -> bool:
@@ -252,9 +276,9 @@ class PlayAnalyzer(AnalysisView):
             slots = self.tracker.players
             stood = {s.id: s.xy for s in slots}
         xy = self.anchor.to_absolute(np.array([stood[s.id] for s in slots]))
-        self.roles = assign_roles(slots, xy, self.anchor.offense_team, self.anchor.los_abs, self._shotgun, self._hash)
+        self.roles = assign_roles(slots, xy, self.anchor.offense_team, self.anchor.los_abs, self._shotgun, self._hash, *self._listed)
         self.at_snap = {s.id: p for s, p in zip(slots, xy)}
-        look = describe_look(xy, [self.roles.get(s.id) for s in slots], self.anchor.los_abs, self._shotgun, self._hash)
+        look = describe_look(xy, [self.roles.get(s.id) for s in slots], self.anchor.los_abs, self._shotgun, self._hash, self._listed[1])
         if look[0]:
             self.look = look
         self._relabel()
@@ -269,8 +293,23 @@ class PlayAnalyzer(AnalysisView):
         for sid, r in self.roles.items():
             if r == "QB":
                 self.labels[sid] = "QB"
+        self._name_receivers()
         for s in self.tracker.slots:
             s.role, s.label = self.roles.get(s.id), self.labels.get(s.id)
+
+    def _name_receivers(self) -> None:
+        """Put names on the receivers the formation identifies beyond doubt."""
+        rec = self.record
+        if rec is None or rec.on_field is None:
+            return
+        qb = next((sid for sid, r in self.roles.items() if r == "QB" and sid in self.at_snap), None)
+        if qb is None:
+            return
+        ball = float(np.clip(self.at_snap[qb][1], 23.58, 29.75))
+        found = [(sid, float(self.at_snap[sid][0] - self.anchor.los_abs), float(self.at_snap[sid][1]))
+                 for sid, r in self.roles.items() if r == "REC" and sid in self.at_snap]
+        for sid, name in name_players(rec.on_field, found, ball, rec.receiver if rec.matched else "", rec.pass_location if rec.matched else "").items():
+            self.labels[sid] = name
 
     def _watch_roles(self, since: float) -> None:
         """What players do after the snap corrects what their alignment suggested."""
@@ -471,15 +510,41 @@ class AnalyzedTracker:
         if len(a.slot_ids) == len(which) and which:
             self._frames.append((res, which, list(a.slot_ids)))
             del self._frames[: -self.keep]
+        res.lines = self._field_lines(a)
         return res
+
+    def _field_lines(self, a: Analysis) -> list:
+        """The line of scrimmage and the line to gain, in the picture, as television draws them."""
+        registrar = self.tracker.registrar
+        if a.anchor is None or registrar is None or registrar.H is None or registrar.rect is None:
+            return []
+        marks = [("scrimmage", a.anchor.los_rel)]
+        to_go = a.record.header.distance if a.record is not None else None
+        if to_go is not None and a.anchor.los_abs + to_go < 110.0:
+            marks.append(("to gain", a.anchor.to_relative_x(a.anchor.los_abs + to_go)))
+        x1, y1, x2, y2 = registrar.rect
+        inverse = np.linalg.inv(registrar.H)
+        out = []
+        for name, x in marks:
+            across = np.array([[x, y] for y in np.linspace(0.0, FIELD_WIDTH, 25)], dtype=np.float64).reshape(-1, 1, 2)
+            px = cv2.perspectiveTransform(across, inverse).reshape(-1, 2)
+            keep = np.all(np.isfinite(px), axis=1) & (px[:, 0] >= x1) & (px[:, 0] <= x2) & (px[:, 1] >= y1) & (px[:, 1] <= y2)
+            pts = [(float(u), float(v)) for (u, v), k in zip(px, keep) if k]
+            if len(pts) >= 2:
+                out.append((name, pts))
+        return out
 
 
 def live_stats(view: AnalysisView, value_model: PassValueModel | None = None, **kwargs) -> LiveStats:
     """The side panel's numbers, fed by an analysis."""
-    baseline = value_model.typical if (value_model is not None and value_model.meta.get("baseline")) else None
+    baseline = None
+    if value_model is not None and value_model.meta.get("baseline"):
+        def baseline(clock: float) -> float:
+            return value_model.typical(clock, to_goal=view.to_goal())
     return LiveStats(value_fn=view.value, metrics_fn=view.rows, explain_fn=view.explain, baseline_fn=baseline,
                      value_clock_fn=view.value_clock, value_unit="yd", value_note_fn=view.value_note,
-                     team_names_fn=view.team_names, clock_text_fn=view.clock_text, rows_always=True, **kwargs)
+                     team_names_fn=view.team_names, clock_text_fn=view.clock_text, rows_always=True,
+                     delta_note="vs typical from here", **kwargs)
 
 
 def load_models(value_path: str | None = None, coverage_path: str | None = None):
