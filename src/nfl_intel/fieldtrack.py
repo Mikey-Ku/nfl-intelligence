@@ -7,6 +7,11 @@ detections to the players we already know is a small assignment problem.
 
 Each player is a slot: a smoothed position, a velocity, a team, and (after the snap) a role.
 Slots coast on their velocity for a short while when their player isn't seen.
+
+Tight coverage is the hard case: a receiver and the man on him overlap in the picture and
+the detector returns one box for the two of them. The one that went missing is then carried
+along with the one still seen, at the offset he had, until the detector can tell them apart
+again. Without that the defender would vanish and his receiver would look wide open.
 """
 
 from __future__ import annotations
@@ -33,6 +38,8 @@ class Slot:
     label: str | None = None
     team_votes: list = field(default_factory=lambda: [0, 0])
     track_id: int | None = None             # the image tracker's id, for drawing
+    partner: int | None = None              # the slot this one is hidden behind, while the detector sees one box for both
+    offset: np.ndarray | None = None        # where this one was relative to the partner when last seen
 
     def predict(self, t: float) -> np.ndarray:
         return self.xy + self.v * (t - self.t)
@@ -44,9 +51,11 @@ class Slot:
 
 class FieldTracker:
     def __init__(self, gate: float = 2.5, coast: float = 1.0, smooth: float = 0.45, velocity_window: float = 0.4,
-                 team_penalty: float = 2.0, min_hits: int = 3):
+                 team_penalty: float = 2.0, min_hits: int = 3, merge_within: float = 2.0, hidden_for: float = 3.0):
         self.gate = gate                      # a detection further than this from every slot starts a new one
         self.coast = coast                    # seconds a slot survives unseen
+        self.merge_within = merge_within      # two opponents closer than this can share one box
+        self.hidden_for = hidden_for          # seconds a slot survives hidden behind its partner
         self.smooth = smooth                  # weight of the new measurement in the position
         self.velocity_window = velocity_window
         self.team_penalty = team_penalty      # yards added to the cost of matching across teams
@@ -62,7 +71,7 @@ class FieldTracker:
         """Match this frame's detections to slots. Returns, for each detection, its slot."""
         xy = np.asarray(xy, dtype=np.float64).reshape(-1, 2)
         assigned: list[Slot | None] = [None] * len(xy)
-        live = [s for s in self.slots if t - s.seen <= self.coast]
+        live = [s for s in self.slots if t - s.seen <= self._lifetime(s)]
         if live and len(xy):
             pred = np.array([s.predict(t) for s in live])
             cost = np.linalg.norm(pred[:, None, :] - xy[None, :, :], axis=2)
@@ -89,17 +98,44 @@ class FieldTracker:
                 self._history[s.id] = [(t, xy[j].copy())]
                 self.slots.append(s)
                 assigned[j] = s
-        for s in self.slots:                                   # unseen slots coast, slowing down
-            if s.t < t and t - s.seen <= self.coast:
-                s.xy = s.predict(t)
-                s.v = s.v * 0.9
-                s.t = t
-        self.slots = [s for s in self.slots if t - s.seen <= self.coast]
+        by_id = {s.id: s for s in self.slots}
+        for s in self.slots:                                   # unseen slots: hidden behind a partner, or coasting
+            if s.t >= t or t - s.seen > self._lifetime(s):
+                continue
+            if s.partner is None and s.hits >= self.min_hits:
+                s.partner, s.offset = self._hidden_behind(s, t)
+            partner = by_id.get(s.partner) if s.partner is not None else None
+            if partner is not None and partner.seen == t:
+                s.xy, s.v, s.t = partner.xy + s.offset, partner.v.copy(), t
+                continue
+            if partner is not None:
+                s.partner, s.offset = None, None               # the partner is gone too: nothing to follow
+            s.xy = s.predict(t)
+            s.v = s.v * 0.9
+            s.t = t
+        self.slots = [s for s in self.slots if t - s.seen <= self._lifetime(s)]
         for sid in [k for k in self._history if all(s.id != k for s in self.slots)]:
             del self._history[sid]
         return assigned
 
+    def _lifetime(self, s: Slot) -> float:
+        return self.hidden_for if s.partner is not None else self.coast
+
+    def _hidden_behind(self, s: Slot, t: float) -> tuple[int | None, np.ndarray | None]:
+        """The player this slot has just disappeared behind, if there is one close enough.
+        Usually the man covering him or the man he covers, but a jersey read wrongly must not
+        stop it, so a teammate will do."""
+        best, near = None, self.merge_within
+        for o in self.slots:
+            if o is s or o.seen != t or o.hits < self.min_hits:
+                continue
+            d = float(np.linalg.norm(o.xy - s.xy))
+            if d < near:
+                best, near = o, d
+        return (None, None) if best is None else (best.id, s.xy - best.xy)
+
     def _absorb(self, s: Slot, t: float, xy: np.ndarray, team, track_id) -> None:
+        s.partner, s.offset = None, None
         pred = s.predict(t)
         new = self.smooth * xy + (1.0 - self.smooth) * pred
         hist = self._history.setdefault(s.id, [])

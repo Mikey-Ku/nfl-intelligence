@@ -53,7 +53,20 @@ class Analysis:
     players: list[TrackedPlayer] = field(default_factory=list)      # in absolute yards when anchored
     slot_ids: list[int] = field(default_factory=list)               # the field tracker's id for each mapped player
     unseen: list[TrackedPlayer] = field(default_factory=list)       # players the detector lost a moment ago, carried on their last heading
+    replayed: bool = False                   # this view isn't mapped: the read comes from the same play's sideline view
+    offense_team: int | None = None          # which jersey group (0 dark, 1 light) has the ball
+    rush: tuple[float, float] | None = None  # the closest rusher to the quarterback: yards away, yards a second closing
     notes: list[str] = field(default_factory=list)
+
+
+@dataclass
+class PlayMemory:
+    """What one view of a play worked out, kept for the other view of the same play."""
+    snap_offset: float                       # seconds from the start of the shot to the snap
+    history: list                            # (seconds since the snap, scores)
+    look: tuple[str, str]
+    coverage: str
+    offense_team: int | None = None
 
 
 class AnalysisView:
@@ -75,6 +88,7 @@ class AnalysisView:
             return f"snap {a.since_snap:+.1f}s"
         return "before the snap" if a.anchor is not None else ""
 
+
     def value_clock(self) -> float | None:
         return self.last.since_snap if (self.last.live and self.last.value is not None) else None
 
@@ -86,10 +100,14 @@ class AnalysisView:
         a = self.last
         if a.value is not None:
             return ""
-        if not a.mapped:
+        if not a.mapped and not a.replayed:
             return "Field not mapped from this view.\nThe sideline angle maps; the end-zone angle doesn't yet."
         if a.record is not None and a.record.matched and not a.record.is_pass:
             return f"{a.record.play_type.capitalize()} play.\nThe value model scores passes."
+        if a.replayed:
+            if a.since_snap is not None and a.since_snap > LIVE_FOR:
+                return "Play over."
+            return "Read from the sideline view.\nWaiting for the snap."
         if a.anchor is None:
             return "Field mapped.\nFinding the line of scrimmage."
         if a.snap_t is None:
@@ -102,14 +120,15 @@ class AnalysisView:
 
     def team_names(self) -> tuple[str, str, str] | None:
         a = self.last
-        if a.anchor is None or a.anchor.offense_team is None:
+        has_ball = a.anchor.offense_team if a.anchor is not None else a.offense_team
+        if has_ball is None:
             return None
         off, dfn = "Offense", "Defense"
         if a.record is not None and a.record.header.offense:
             off = f"{a.record.header.offense} offense"
             dfn = f"{a.record.defense} defense" if a.record.defense else dfn
         names = [dfn, dfn, "Unassigned"]
-        names[a.anchor.offense_team] = off
+        names[has_ball] = off
         return tuple(names)
 
     def explain(self, t0: float, t1: float) -> str:
@@ -146,7 +165,7 @@ class AnalysisView:
         rows: list[tuple[str, str]] = []
         if a.record is not None and a.record.header.complete:
             rows.append(("Play", a.record.summary))
-        if a.anchor is None:
+        if a.anchor is None and not a.replayed:
             return rows
         over = a.since_snap is not None and a.since_snap > LIVE_FOR
         if a.scores and not over:
@@ -154,13 +173,17 @@ class AnalysisView:
             most_open = max(a.scores, key=lambda s: s.separation)
             rows.append(("Best throw", f"{best.label}  {best.p_catch:.0%} caught, {best.yards_if_caught:.0f} yd"))
             rows.append(("Most open", f"{most_open.label}  {most_open.separation:.1f} yd"))
+            if a.rush is not None:
+                rows.append(("Nearest rusher", f"{a.rush[0]:.1f} yd" + (", closing" if a.rush[1] > 1.0 else "")))
         listed = a.record.on_field if a.record is not None else None
-        before = a.since_snap is None
+        before = a.since_snap is None or a.since_snap < 0
+        if a.replayed:
+            rows.append(("Read from", "the sideline view"))
         if a.look[0]:
             rows.append(("Offense", a.look[0]))
         if listed is not None and listed.personnel and (before or over):
             rows.append(("Personnel", listed.personnel.split(":")[0] + " v " + listed.package.split(",")[0].lower()))
-        if a.coverage and a.since_snap is not None:
+        if a.coverage and a.since_snap is not None and a.since_snap >= 0:
             rows.append(("Coverage read", a.coverage))
         elif a.look[1]:
             rows.append(("Defense", a.look[1]))
@@ -183,11 +206,62 @@ class PlayAnalyzer(AnalysisView):
         self.score_every = max(1, score_every)
         self.tracker = FieldTracker()
         self.snap = SnapDetector()
+        self.memory: dict[tuple, PlayMemory] = {}       # plays already worked out, by their header
+        self.plays: list[dict] = []                     # one summary per play worked out, in order
         self._shot = None
         self._lock = None
+        self._shot_t0: float | None = None
         self.reset()
 
+    def _remember(self) -> None:
+        """Keep what this shot worked out, for the other camera angle of the same play."""
+        rec = getattr(self, "record", None)
+        if rec is None or not rec.header.complete or getattr(self, "snap_t", None) is None or self._shot_t0 is None:
+            return
+        self.memory[rec.header.key] = PlayMemory(self.snap_t - self._shot_t0, list(self.history), self.look, self._held[1],
+                                                 self.anchor.offense_team if self.anchor is not None else None)
+        self.plays.append(self.summary())
+        for key in list(self.memory)[:-8]:
+            del self.memory[key]
+
+    def summary(self) -> dict:
+        """The play as worked out from this shot, in plain values: for the play log."""
+        rec, a = self.record, self.anchor
+        out: dict = {"shot": self._shot, "snap": None if self.snap_t is None else round(float(self.snap_t), 2),
+                     "offense_look": self.look[0], "defense_look": self.look[1]}
+        if rec is not None and rec.header.complete:
+            h = rec.header
+            out.update({"play": rec.summary, "quarter": h.quarter, "clock": h.clock, "down": h.down, "distance": h.distance,
+                        "offense": h.offense, "defense": rec.defense, "matched": rec.matched})
+            if rec.matched:
+                out.update({"game_id": rec.game_id, "play_id": rec.play_id, "play_type": rec.play_type, "result": rec.outcome,
+                            "yards": rec.yards_gained, "epa": None if rec.epa is None else round(float(rec.epa), 2),
+                            "charted": rec.charted_look})
+            if rec.on_field is not None:
+                out.update({"personnel": rec.on_field.personnel, "package": rec.on_field.package})
+        if a is not None:
+            out.update({"yards_to_goal": round(110.0 - a.los_abs, 1), "anchored_by": a.source})
+        roles = list(self.roles.values())
+        out["found"] = {r: roles.count(r) for r in ("QB", "REC", "OL", "DL", "DEF") if roles.count(r)}
+        out["names"] = sorted(v for v in self.labels.values() if v != "QB" and not (v[0] in "RD" and v[1:].isdigit()))
+        if self.history:
+            to_goal = None if a is None else 110.0 - a.los_abs
+            curve = []
+            for since, scores in self.history:
+                value, best = play_value(scores)
+                typical = self.value_model.typical(since, to_goal=to_goal) if self.value_model is not None else None
+                curve.append({"t": round(float(since), 2), "value": round(float(value), 2), "best": best.label,
+                              "catch": round(float(best.p_catch), 2), "typical": None if typical is None else round(float(typical), 2)})
+            out["value"] = curve
+            peak = max(curve, key=lambda c: c["value"])
+            out["peak"] = {"t": peak["t"], "value": peak["value"], "best": peak["best"]}
+            out["coverage_read"] = self._held[1]
+        if self.closest_rush is not None:
+            out["closest_rush"] = {"yards": round(self.closest_rush[0], 1), "t": round(float(self.closest_rush[1]), 2)}
+        return out
+
     def reset(self) -> None:
+        self._remember()
         self.tracker.reset()
         self.snap.reset()
         self.record: PlayRecord | None = self.fixed_record
@@ -195,6 +269,7 @@ class PlayAnalyzer(AnalysisView):
         self.end_zone = None
         self.numbers = None                 # (goal line, side) read off the painted yard numbers
         self.huddle = None                  # (team, x) of the offense's huddle, if the shot showed one
+        self.closest_rush = None            # (yards, seconds after the snap) when a rusher was nearest the quarterback
         self._number_tries = 0
         self.roles: dict[int, str] = {}
         self.labels: dict[int, str] = {}
@@ -205,6 +280,7 @@ class PlayAnalyzer(AnalysisView):
         self._recent: list[tuple[float, dict[int, np.ndarray]]] = []     # the last couple of seconds of positions
         self._header_tries = 0
         self._mapped_frames = 0
+        self._frames = 0
         self._held: tuple[list[ReceiverScore], str] = ([], "")
         self.last = Analysis(record=self.record)
 
@@ -351,6 +427,19 @@ class PlayAnalyzer(AnalysisView):
                 for s in self.tracker.slots:
                     s.role, s.label = self.roles.get(s.id), self.labels.get(s.id)
 
+    def _rush(self) -> tuple[float, float] | None:
+        """How close the nearest rusher is to the quarterback and how fast he is closing.
+        The value model can't see the rush (its training data has no linemen), so the panel
+        shows it next to the value instead of inside it."""
+        qb = next((s for s in self.tracker.slots if self.roles.get(s.id) == "QB"), None)
+        rushers = [s for s in self.tracker.slots if self.roles.get(s.id) == "DL"]
+        if qb is None or not rushers:
+            return None
+        gaps = [(float(np.linalg.norm(r.xy - qb.xy)), r) for r in rushers]
+        gap, r = min(gaps, key=lambda g: g[0])
+        toward = (qb.xy - r.xy) / max(gap, 1e-6)
+        return gap, float(np.dot(r.v - qb.v, toward))
+
     def _score(self, since: float) -> tuple[list[ReceiverScore], str]:
         slots = [s for s in self.tracker.slots if s.id in self.roles]
         by_role = {r: [s for s in slots if self.roles[s.id] == r] for r in ("QB", "REC", "DEF")}
@@ -373,6 +462,27 @@ class PlayAnalyzer(AnalysisView):
             coverage = read.text if read is not None else ""
         return scores, coverage
 
+    def _replay(self, out: Analysis, t: float) -> None:
+        """A view that can't be mapped (the end-zone angle) shows the same play as the sideline
+        view did, from the same moment: replay that read in step with it."""
+        rec = self.record
+        mem = self.memory.get(rec.header.key) if (rec is not None and rec.header.complete) else None
+        if mem is None or self._shot_t0 is None or self.snap_t is not None:
+            return
+        since = (t - self._shot_t0) - mem.snap_offset
+        out.replayed, out.look, out.offense_team = True, mem.look, mem.offense_team
+        out.snap_t, out.since_snap = self._shot_t0 + mem.snap_offset, since
+        out.live = 0.0 <= since <= LIVE_FOR
+        self.history = mem.history
+        if out.live and mem.history:
+            times = np.array([h[0] for h in mem.history])
+            k = int(np.argmin(np.abs(times - since)))
+            if abs(times[k] - since) <= 0.5:
+                out.scores = mem.history[k][1]
+                out.value, out.best = play_value(out.scores)
+        if since >= 0:
+            out.coverage = mem.coverage
+
     # ---------------------------------------------------------------- per frame
 
     def update(self, frame: np.ndarray, result: FrameResult, play_tracker=None) -> Analysis:
@@ -380,14 +490,19 @@ class PlayAnalyzer(AnalysisView):
         field_info = getattr(play_tracker, "field", None)
         lock = getattr(registrar, "lock_id", None)
         if result.shot != self._shot or lock != self._lock:
+            new_shot = result.shot != self._shot
             self._shot, self._lock = result.shot, lock
             self.reset()
+            if new_shot or self._shot_t0 is None:
+                self._shot_t0 = result.t
         out = Analysis(record=self.record, anchor=self.anchor, snap_t=self.snap_t, look=self.look)
         mapped = [p for p in result.players if p.field_yd is not None]
         if len(mapped) < 6:
-            if self.record is None and result.players and self._header_tries == 0:
+            self._frames += 1
+            if result.players and self._frames in (1, 8, 20):
                 self._read_play(frame)                           # the header is there even when the field isn't mapped
                 out.record = self.record
+            self._replay(out, result.t)
             self.last = out
             return out
         out.mapped = True
@@ -450,6 +565,9 @@ class PlayAnalyzer(AnalysisView):
             out.live = 0.0 <= since <= LIVE_FOR
             if out.live:
                 self._watch_roles(since)
+                out.rush = self._rush()
+                if out.rush is not None and (self.closest_rush is None or out.rush[0] < self.closest_rush[0]):
+                    self.closest_rush = (out.rush[0], since)
             if out.live and passing:
                 if self._mapped_frames % self.score_every == 0 or not self._held[0]:
                     self._held = self._score(since)
@@ -563,7 +681,7 @@ def live_stats(view: AnalysisView, value_model: PassValueModel | None = None, **
     return LiveStats(value_fn=view.value, metrics_fn=view.rows, explain_fn=view.explain, baseline_fn=baseline,
                      value_clock_fn=view.value_clock, value_unit="yd", value_note_fn=view.value_note,
                      team_names_fn=view.team_names, clock_text_fn=view.clock_text, rows_always=True,
-                     delta_note="vs typical from here", **kwargs)
+                     value_needs_yards=False, delta_note="vs typical from here", **kwargs)
 
 
 def load_models(value_path: str | None = None, coverage_path: str | None = None):

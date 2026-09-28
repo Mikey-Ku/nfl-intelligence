@@ -32,12 +32,12 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
 - `src/nfl_intel/personnel.py` — NFL Pro's "On Field Players" list → personnel grouping, names for receivers the formation identifies
 - `src/nfl_intel/fieldnumbers.py` — lays the field flat through the mapping and reads the painted yard numbers and their arrows
 - `src/nfl_intel/anchor.py` — pins the relative mapping to the real field: line of scrimmage, direction, end-zone finder, huddle finder
-- `src/nfl_intel/fieldtrack.py` — tracking in yards (Hungarian assignment) and snap detection
+- `src/nfl_intel/fieldtrack.py` — tracking in yards (Hungarian assignment; a player hidden behind another rides with him) and snap detection
 - `src/nfl_intel/roles.py` — QB / REC / OL / DEF / DL from the formation (+ charted shotgun/hash hints), corrected by what players do after the snap; the look in words
 - `src/nfl_intel/roles_check.py` — marks role assignment against Big Data Bowl snaps (`nfl roles-check`)
 - `src/nfl_intel/nflverse.py` — fetches the season's public play-by-play / charting (`nfl data`)
 - `src/nfl_intel/imaging.py` — `shrink`: fast resize for 4K frames with the geometry of cv2.resize
-- `src/nfl_intel/analysis.py` — `PlayAnalyzer` (play → anchor → snap → roles → value) and `AnalyzedTracker`, which wraps `PlayTracker`
+- `src/nfl_intel/analysis.py` — `PlayAnalyzer` (play → anchor → snap → roles → value; replays the read on the unmapped end-zone view; play log) and `AnalyzedTracker`, which wraps `PlayTracker`
 - `src/nfl_intel/topdown.py` — top-down view of an anchored play, `TopDownWriter` for `nfl run --topdown`
 - `src/nfl_intel/stats.py` — `LiveStats`: play segmentation, team counts, tracking health, value/plus-minus hooks
 - `src/nfl_intel/panel.py` — renders the stats side panel (QPainter), shared by the window, test shots and tests

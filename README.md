@@ -115,6 +115,20 @@ On a sideline-angle shot the pipeline works the play out on its own, in this ord
    doubt, names on the receivers (a lone back, a lone tight end, the man the ball went to).
 
 The line of scrimmage and the line to gain are drawn on the video the way television does.
+The panel also shows the nearest rusher to the quarterback: the value model can't see the
+rush (its training data has no linemen), so it sits beside the value rather than inside it.
+
+**The end-zone angle** isn't mapped, but NFL Pro shows each play from the sideline first and
+the two views start at the same moment, so the sideline read is replayed in step with it:
+the panel keeps its clock, formation and value, marked "read from the sideline view".
+
+**Tight coverage** puts a receiver and his defender in one box. The one the detector loses
+is carried along with the one it still sees until they part, instead of vanishing and
+leaving the receiver looking wide open.
+
+`nfl run` writes `<clip>.plays.json`: one entry per play with the situation, personnel,
+formation, what was found, the value curve against typical, the closest the rush got, and
+the result. `nfl overlay --out live.csv` writes `live.plays.json` the same way.
 
 **Without the page around the video** (full screen, or another source) there is no header
 to read. `--no-play-lookup` runs that way on purpose: the painted numbers give the yard

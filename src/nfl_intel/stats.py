@@ -79,6 +79,7 @@ class LiveStats:
         rows_always: bool = False,
         clock_text_fn: Callable[[], str] | None = None,
         delta_note: str = "vs a typical play",
+        value_needs_yards: bool = True,
     ):
         self.window = window
         self.settle = settle
@@ -98,6 +99,7 @@ class LiveStats:
         self.team_names_fn = team_names_fn
         self.clock_text_fn = clock_text_fn
         self.delta_note = delta_note
+        self.value_needs_yards = value_needs_yards   # False: the caller decides when it has a value (it may be replaying one)
         self.rows_always = rows_always        # the caller has rows to show even without yards (the play's name)
         self.play = 0
         self._fps = 0.0
@@ -187,9 +189,10 @@ class LiveStats:
 
         rows: list[tuple[str, str]] = []
         value = delta = None
-        if self.rows_always and self.metrics_fn is not None and not (calibrated and self._in_play):
+        ready = (calibrated or not self.value_needs_yards) and self._in_play
+        if self.rows_always and self.metrics_fn is not None and not ready:
             rows = self.metrics_fn(result)
-        if calibrated and self._in_play:
+        if ready:
             if self.metrics_fn is not None:
                 rows = self.metrics_fn(result)
             vclock = clock if self.value_clock_fn is None else self.value_clock_fn()

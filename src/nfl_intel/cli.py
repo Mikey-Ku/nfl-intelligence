@@ -203,6 +203,29 @@ def _build_live_stats(tracker):
     return live_stats(tracker.analyzer, tracker.analyzer.value_model)
 
 
+def _write_plays(tracker, path: Path) -> None:
+    """The play log: one entry per play worked out, and a line about each on the terminal."""
+    import json
+
+    analyzer = tracker.analyzer
+    analyzer.reset()                                   # closes the play still open
+    plays, analyzer.plays = analyzer.plays, []
+    if not plays:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(plays, indent=1))
+    print(f"  {len(plays)} play{'s' if len(plays) != 1 else ''} worked out -> {path}")
+    for p in plays:
+        line = f"    {p.get('play', 'play not read')}: {p.get('offense_look') or 'no look'}"
+        if p.get("personnel"):
+            line += f" ({p['personnel'].split(':')[0]} v {p['package'].split(',')[0].lower()})"
+        if p.get("peak"):
+            line += f"; best moment {p['peak']['value']:.1f} yd to {p['peak']['best']} at +{p['peak']['t']:.1f}s"
+        if p.get("result"):
+            line += f"; {p['result']}"
+        print(line)
+
+
 def _narrate(tracker, res, told: set) -> None:
     """Print each thing the analysis works out, once per shot, as it happens."""
     a = getattr(tracker, "analysis", None)
@@ -295,9 +318,11 @@ def cmd_overlay(args) -> None:
         if writer is not None:
             writer.release()
             print(f"wrote {args.record}")
+        if hasattr(tracker, "finish"):
+            tracker.finish()
+            if args.out:
+                _write_plays(tracker, Path(args.out).with_suffix(".plays.json"))
         if args.out and results:
-            if hasattr(tracker, "finish"):
-                tracker.finish()
             n = write_csv(args.out, results)
             print(f"wrote {n} rows to {args.out}")
         if shots_dir:
@@ -392,6 +417,7 @@ def cmd_run(args) -> None:
         src.release()
         if hasattr(tracker, "finish"):
             tracker.finish()
+            _write_plays(tracker, out_dir / f"{stem}.plays.json")
         n = write_csv(csv_path, results)
         dt = time.perf_counter() - t0
         ids = {p.track_id for r in results for p in r.players}

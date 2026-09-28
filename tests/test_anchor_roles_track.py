@@ -382,3 +382,35 @@ def test_the_huddle_says_who_has_the_ball():
     assert a.direction == -1 and a.offense_team == 0 and a.source == "painted numbers and huddle"
     assert a.los_abs == pytest.approx(103.0, abs=1.0)
     assert anchor_play(x, t, None, end_zone=(33.0, -1), huddle=(1, 47.0)) is None      # a "huddle" on the wrong side of the ball
+
+
+def test_a_defender_hidden_behind_his_receiver_is_carried_along():
+    tr = FieldTracker()
+    rec_id = def_id = None
+    for f in range(100):
+        t = f / 20.0
+        rec = np.array([20.0 + 6.0 * t, 10.0])
+        dfn = rec + np.array([1.0, 0.6])                               # tight coverage, a yard off
+        far = np.array([60.0, 40.0])
+        merged = 30 <= f < 75                                          # one box for the two of them, for over two seconds
+        pts = [rec, far] if merged else [rec, dfn, far]
+        teams = [0, 1] if merged else [0, 1, 1]
+        got = tr.update(t, np.array(pts), teams, list(range(len(pts))))
+        if f == 20:
+            rec_id, def_id = got[0].id, got[1].id
+        if f == 60:
+            hidden = next(s for s in tr.slots if s.id == def_id)       # still there, still a yard off his man
+            assert hidden.partner == rec_id
+            assert hidden.xy == pytest.approx(rec + np.array([1.0, 0.6]), abs=0.4)
+        if f >= 80:
+            assert (got[0].id, got[1].id) == (rec_id, def_id)          # and he is himself again when they part
+    assert len(tr.players) == 3
+
+
+def test_a_man_who_simply_leaves_is_not_kept():
+    tr = FieldTracker()
+    for f in range(60):
+        t = f / 20.0
+        pts = [np.array([20.0, 10.0]), np.array([40.0, 30.0])] if f < 20 else [np.array([20.0, 10.0])]
+        tr.update(t, np.array(pts), [0, 1][: len(pts)], list(range(len(pts))))
+    assert len(tr.slots) == 1                                          # nobody near him to hide behind: gone after a second

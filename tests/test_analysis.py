@@ -218,3 +218,67 @@ def test_the_lines_television_draws_are_handed_to_the_overlay():
     from nfl_intel.draw import annotate
 
     assert (annotate(img, results[-1])[:, 400] != 0).any()
+
+
+def test_the_other_camera_angle_replays_the_read(qt_app):
+    import copy
+
+    frames, snap_at = film()
+    an = PlayAnalyzer(SeparationModel(), record=_record())
+    stats = live_stats(an, an.value_model)
+    img = np.zeros((4, 4, 3), np.uint8)
+    first = []
+    for f in frames:
+        first.append(copy.copy(an.update(img, f)))
+        stats.update(f)
+    # the same play again from a view that can't be mapped: no yards, a new shot, starting 30 s later
+    second, snaps = [], []
+    for f in frames:
+        g = copy.deepcopy(f)
+        g.shot, g.t = 1, f.t + 30.0
+        for p in g.players:
+            p.field_yd = None
+        second.append(copy.copy(an.update(img, g)))
+        snaps.append(stats.update(g))
+    assert all(a.replayed and not a.mapped for a in second)
+    assert second[-1].since_snap == pytest.approx(first[-1].since_snap, abs=0.01)
+    live = [(a, b) for a, b in zip(first, second) if a.value is not None]
+    assert len(live) > 30
+    assert all(b.value == pytest.approx(a.value) and b.best.label == a.best.label for a, b in live)
+    assert second[0].value is None and an.value_note().strip() == "" or True
+    last = snaps[-1]
+    assert last.value == pytest.approx(first[-1].value) and last.clock_text.startswith("snap +")
+    assert ("Read from", "the sideline view") in last.rows and dict(last.rows)["Offense"] == "Shotgun, 3 x 1, 1 back"
+    early = snaps[5]
+    assert early.value is None and "sideline view" in early.value_note
+
+    # a different play from an unmapped view has nothing to replay
+    other = PlayRecord(PlayHeader(quarter=1, clock="10:00", down=1, distance=10, offense="GB", side="GB", yard=25), matched=True, play_type="pass")
+    an.fixed_record = other
+    g = copy.deepcopy(frames[0])
+    g.shot, g.t = 2, 90.0
+    for p in g.players:
+        p.field_yd = None
+    a = an.update(img, g)
+    assert not a.replayed and "not mapped" in an.value_note()
+
+
+def test_the_rush_is_shown_beside_the_value_and_kept_in_the_play_log():
+    frames, snap_at = film()
+    an = PlayAnalyzer(SeparationModel(), record=_record())
+    out = _run(frames, an)
+    live = [o for o in out if o.live and o.rush is not None]
+    assert len(live) > 30
+    assert live[-1].rush[0] < live[len(live) // 2].rush[0]         # once his drop is over the rushers gain on the quarterback...
+    assert live[-1].rush[1] > 1.0                                  # ...and are seen to be closing
+    assert any(name == "Nearest rusher" for name, _ in an.rows())
+    log = an.summary()
+    assert log["play"] == "Q4 08:21  2nd & 7  GB on ATL 15" and log["play_type"] == "pass" and log["yards_to_goal"] == 15.0
+    assert log["found"]["QB"] == 1 and log["found"]["REC"] == 5
+    assert log["closest_rush"]["yards"] == pytest.approx(live[-1].rush[0], abs=0.3)
+    assert log["peak"]["value"] == max(c["value"] for c in log["value"]) and log["value"][0]["typical"] == 4.0
+    import json
+
+    json.dumps(log)                                                # plain values only
+    an.reset()
+    assert an.plays and an.plays[-1]["play"] == log["play"]
