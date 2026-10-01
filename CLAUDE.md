@@ -38,6 +38,8 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
 - `src/nfl_intel/nflverse.py` — fetches the season's public play-by-play / charting (`nfl data`)
 - `src/nfl_intel/imaging.py` — `shrink`: fast resize for 4K frames with the geometry of cv2.resize
 - `src/nfl_intel/analysis.py` — `PlayAnalyzer` (play → anchor → snap → roles → value; replays the read on the unmapped end-zone view; play log) and `AnalyzedTracker`, which wraps `PlayTracker`
+- `src/nfl_intel/decision.py` — grades the throw: target from the play-by-play, throw moment worked back, options ranked (experimental)
+- `src/nfl_intel/plays_check.py` — marks play logs against the official charting (`nfl plays-check`)
 - `src/nfl_intel/topdown.py` — top-down view of an anchored play, `TopDownWriter` for `nfl run --topdown`
 - `src/nfl_intel/stats.py` — `LiveStats`: play segmentation, team counts, tracking health, value/plus-minus hooks
 - `src/nfl_intel/panel.py` — renders the stats side panel (QPainter), shared by the window, test shots and tests
@@ -51,5 +53,5 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
 - `src/nfl_intel/calibrate.py` — click landmarks on a frame to build a homography
 - `src/nfl_intel/evaluate.py` — score a tracking CSV against hand-labeled truth (yards error, recall, ID switches, MOTA)
 - `src/nfl_intel/train.py` — keyframe pre-labeling, dataset YAML, two-stage YOLO fine-tune
-- `src/nfl_intel/cli.py` — `nfl` command: check, windows, overlay, capture, run, replay, eval, calibrate, prelabel, train, value-train, coverage-train, value-baseline, value-demo, data, roles-check
+- `src/nfl_intel/cli.py` — `nfl` command: check, windows, overlay, capture, run, replay, eval, calibrate, prelabel, train, value-train, coverage-train, value-baseline, value-demo, data, roles-check, plays-check
 - `docs/PRIOR_ART.md` — what exists elsewhere, how it runs/tests/views, ranked improvements

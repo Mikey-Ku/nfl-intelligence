@@ -56,6 +56,8 @@ class Analysis:
     replayed: bool = False                   # this view isn't mapped: the read comes from the same play's sideline view
     offense_team: int | None = None          # which jersey group (0 dark, 1 light) has the ball
     rush: tuple[float, float] | None = None  # the closest rusher to the quarterback: yards away, yards a second closing
+    loose: list[TrackedPlayer] = field(default_factory=list)        # seen this frame, not yet confirmed by the image tracker
+    throw: object = None                     # decision.ThrowGrade once the ball has been thrown and the throw graded
     notes: list[str] = field(default_factory=list)
 
 
@@ -67,6 +69,7 @@ class PlayMemory:
     look: tuple[str, str]
     coverage: str
     offense_team: int | None = None
+    throw: object = None                     # decision.ThrowGrade, when the throw could be graded
 
 
 class AnalysisView:
@@ -190,6 +193,10 @@ class AnalysisView:
             rows.append(("Coverage read", a.coverage))
         elif a.look[1]:
             rows.append(("Defense", a.look[1]))
+        if a.throw is not None:
+            t = a.throw
+            rank = f"option {t.rank}" if t.firm else f"option {t.ranks[0]}-{t.ranks[1]}"
+            rows.append(("Threw to", f"{t.target}, {rank} of {len(t.options)}"))
         if over and a.record is not None and a.record.matched:
             rows.append(("Result", a.record.outcome))
             if a.record.charted_look:
@@ -225,7 +232,7 @@ class PlayAnalyzer(AnalysisView):
         if not rec.from_scrimmage:
             return
         self.memory[rec.header.key] = PlayMemory(self.snap_t - self._shot_t0, list(self.history), self.look, self._held[1],
-                                                 self.anchor.offense_team if self.anchor is not None else None)
+                                                 self.anchor.offense_team if self.anchor is not None else None, self.throw)
         self.plays.append(self.summary())
         for key in list(self.memory)[:-8]:
             del self.memory[key]
@@ -264,6 +271,8 @@ class PlayAnalyzer(AnalysisView):
             peak = max(curve, key=lambda c: c["value"])
             out["peak"] = {"t": peak["t"], "value": peak["value"], "best": peak["best"]}
             out["coverage_read"] = self._held[1]
+        if self.throw is not None:
+            out["throw"] = self.throw.as_dict()
         if self.closest_rush is not None:
             out["closest_rush"] = {"yards": round(self.closest_rush[0], 1), "t": round(float(self.closest_rush[1]), 2)}
         return out
@@ -278,6 +287,8 @@ class PlayAnalyzer(AnalysisView):
         self.numbers = None                 # (goal line, side) read off the painted yard numbers
         self.huddle = None                  # (team, x) of the offense's huddle, if the shot showed one
         self.closest_rush = None            # (yards, seconds after the snap) when a rusher was nearest the quarterback
+        self.throw = None                   # decision.ThrowGrade for this play
+        self._known: dict[int, tuple] = {}   # slot id -> (time seen, position, velocity) of players with a role
         self._number_tries = 0
         self.roles: dict[int, str] = {}
         self.labels: dict[int, str] = {}
@@ -414,10 +425,60 @@ class PlayAnalyzer(AnalysisView):
         for sid, name in name_players(rec.on_field, found, ball, rec.receiver if rec.matched else "", rec.pass_location if rec.matched else "").items():
             self.labels[sid] = name
 
+    def _reclaim(self, t: float) -> None:
+        """Players the tracker lost and found again come back as strangers. Give each stranger
+        the name of the missing player he most likely is; a stranger on the defense's side
+        with nobody missing is one more defender. Without this a corner who drops out for a
+        second leaves his receiver looking wide open."""
+        live = {s.id: s for s in self.tracker.slots}
+        for sid in self.roles:
+            s = live.get(sid)
+            if s is not None and t - s.seen <= 0.3:
+                self._known[sid] = (s.seen, s.xy.copy(), s.v.copy())
+        missing = {sid: k for sid, k in self._known.items() if sid in self.roles and self.roles[sid] != "OFF"
+                   and (sid not in live or t - live[sid].seen > 0.3) and t - k[0] <= 4.0}
+        for s in self.tracker.players:
+            if s.id in self.roles or t - s.seen > 0.1:
+                continue
+            best, near = None, None
+            for sid, (seen, xy, v) in missing.items():
+                dt = t - seen
+                reach = 2.5 + 1.5 * dt
+                d = float(np.linalg.norm(xy + v * min(dt, 1.0) - s.xy))
+                if self.roles[sid] in ("QB", "REC", "OL") and s.team not in (None, self.anchor.offense_team):
+                    d += 1.5
+                if self.roles[sid] in ("DEF", "DL") and s.team == self.anchor.offense_team:
+                    d += 1.5
+                if d <= min(reach, 6.0) and (near is None or d < near):
+                    best, near = sid, d
+            if best is not None:
+                self.roles[s.id] = self.roles.pop(best)
+                if best in self.labels:
+                    self.labels[s.id] = self.labels.pop(best)
+                if best in self.at_snap:
+                    self.at_snap[s.id] = self.at_snap[best]
+                self._known.pop(best, None)
+                missing.pop(best, None)
+                if best in live:
+                    live[best].seen = -1e9                      # the old slot is the same man: let it go
+            elif s.team is not None and s.team != self.anchor.offense_team \
+                    and sum(1 for r in self.roles.values() if r in ("DEF", "DL")) < 11 \
+                    and self.anchor.to_absolute(s.xy)[0, 0] > self.anchor.los_abs - 1.0:
+                self.roles[s.id] = "DEF"
+                taken = {v for v in self.labels.values() if v.startswith("D") and v[1:].isdigit()}
+                n = 1
+                while f"D{n}" in taken:
+                    n += 1
+                self.labels[s.id] = f"D{n}"
+                self.at_snap[s.id] = self.anchor.to_absolute(s.xy)[0]
+            s.role, s.label = self.roles.get(s.id), self.labels.get(s.id)
+
     def _watch_roles(self, since: float) -> None:
         """What players do after the snap corrects what their alignment suggested."""
         now = {s.id: self.anchor.to_absolute(s.xy)[0] for s in self.tracker.slots if s.id in self.roles}
-        changed = update_roles(self.roles, now, self.anchor.los_abs, since, self._passing)
+        qb = next((sid for sid, r in self.roles.items() if r == "QB" and sid in self.at_snap), None)
+        changed = update_roles(self.roles, now, self.anchor.los_abs, since, self._passing,
+                               None if qb is None else float(self.at_snap[qb][1]), self._listed[1] or 5)
         if any(self.roles[sid] in ("REC", "DEF") or sid in self.labels for sid in changed):
             if since <= 1.0:
                 self._relabel()                          # early enough that nobody has learned the names yet
@@ -479,6 +540,8 @@ class PlayAnalyzer(AnalysisView):
             return
         since = (t - self._shot_t0) - mem.snap_offset
         out.replayed, out.look, out.offense_team = True, mem.look, mem.offense_team
+        if mem.throw is not None and (t - self._shot_t0) - mem.snap_offset >= mem.throw.thrown_at:
+            out.throw = mem.throw
         out.snap_t, out.since_snap = self._shot_t0 + mem.snap_offset, since
         out.live = 0.0 <= since <= LIVE_FOR
         self.history = mem.history
@@ -499,8 +562,8 @@ class PlayAnalyzer(AnalysisView):
         lock = getattr(registrar, "lock_id", None)
         if result.shot != self._shot or lock != self._lock:
             new_shot = result.shot != self._shot
+            self.reset()                                 # closes the old shot's play under the old shot's number
             self._shot, self._lock = result.shot, lock
-            self.reset()
             if new_shot or self._shot_t0 is None:
                 self._shot_t0 = result.t
         out = Analysis(record=self.record, anchor=self.anchor, snap_t=self.snap_t, look=self.look)
@@ -522,8 +585,11 @@ class PlayAnalyzer(AnalysisView):
             self.last = out                                      # a kick, a kneel-down, a flag before the snap
             return out
         boxes = np.array([p.box for p in result.players]) if result.players else None
-        xy_rel = np.array([p.field_yd for p in mapped])
-        slots = self.tracker.update(result.t, xy_rel, [p.team for p in mapped], [p.track_id for p in mapped])
+        loose = [p for p in getattr(result, "loose", []) if p.field_yd is not None]
+        both = mapped + loose
+        xy_rel = np.array([p.field_yd for p in both])
+        slots = self.tracker.update(result.t, xy_rel, [p.team for p in both], [p.track_id if p.track_id >= 0 else None for p in both])
+        loose_slots, slots = slots[len(mapped):], slots[: len(mapped)]
 
         if self.snap_t is None:
             self._recent.append((result.t, {s.id: s.xy.copy() for s in self.tracker.players}))
@@ -560,7 +626,13 @@ class PlayAnalyzer(AnalysisView):
                     track_id=p.track_id, team=team, box=p.box, conf=p.conf, foot_px=p.foot_px,
                     field_yd=(float(q[0]), float(q[1])), role=role, label=self.labels.get(s.id),
                 ))
-            shown = {s.id for s in slots}
+            for p, s in zip(loose, loose_slots):
+                if s.hits >= self.tracker.min_hits and self.roles.get(s.id) not in (None, "OFF"):
+                    q = self.anchor.to_absolute(s.xy)[0]
+                    side = self.anchor.offense_team if self.roles[s.id] in ("QB", "REC", "OL") else 1 - self.anchor.offense_team
+                    out.loose.append(TrackedPlayer(track_id=-1, team=side, box=p.box, conf=p.conf, foot_px=p.foot_px,
+                                                   field_yd=(float(q[0]), float(q[1])), role=self.roles[s.id], label=self.labels.get(s.id)))
+            shown = {s.id for s in slots} | {s.id for s in loose_slots}
             for s in self.tracker.players:
                 if s.id not in shown and s.id in self.roles and self.roles[s.id] != "OFF":
                     q = self.anchor.to_absolute(s.xy)[0]
@@ -575,6 +647,7 @@ class PlayAnalyzer(AnalysisView):
             out.since_snap = since
             out.live = 0.0 <= since <= LIVE_FOR
             if out.live:
+                self._reclaim(result.t)
                 self._watch_roles(since)
                 out.rush = self._rush()
                 if out.rush is not None and (self.closest_rush is None or out.rush[0] < self.closest_rush[0]):
@@ -588,6 +661,7 @@ class PlayAnalyzer(AnalysisView):
                     self.history.append((since, out.scores))
             elif since > LIVE_FOR:
                 out.coverage = self._held[1]
+            out.throw = self.throw
         self.last = out
         return out
 
@@ -608,6 +682,7 @@ class AnalyzedTracker:
         self.analysis = Analysis()
         self._key = None
         self._frames: list[tuple[FrameResult, list[int], list[int]]] = []     # frame, which players, their slots
+        self._graded = False
 
     @property
     def field(self):
@@ -627,9 +702,40 @@ class AnalyzedTracker:
         self.analyzer.reset()
         self._key = None
 
+    GRADE_AFTER = 6.0                 # seconds after the snap by which nearly every pass has arrived
+
+    def _labelled(self) -> list[FrameResult]:
+        """The shot's frames with today's names and roles on every player, on the real field."""
+        a, out = self.analyzer, []
+        for res, which, slot_ids in self._frames:
+            xy = np.array([res.players[i].field_yd for i in which], dtype=np.float64).reshape(-1, 2)
+            if not res.anchored:
+                xy = a.anchor.to_absolute(xy)
+            players = [TrackedPlayer(res.players[i].track_id, res.players[i].team, res.players[i].box, res.players[i].conf,
+                                     res.players[i].foot_px, (float(xy[k, 0]), float(xy[k, 1])),
+                                     a.roles.get(slot_ids[k]), a.labels.get(slot_ids[k])) for k, i in enumerate(which)]
+            out.append(FrameResult(res.frame, res.t, res.size, players, res.shot, True))
+        return out
+
+    def _grade(self) -> None:
+        """Grade the throw from the shot so far. Called once the ball must have arrived, and at the end of the shot."""
+        from .decision import grade_throw
+
+        a, rec = self.analyzer, self.analyzer.record
+        if a.anchor is None or a.snap_t is None or a.value_model is None or rec is None or not rec.matched or not rec.is_pass or rec.sack:
+            return
+        name = next((p.last_name for p in (rec.on_field.offense if rec.on_field is not None else []) if p.is_called(rec.receiver)), "")
+        try:
+            a.throw = grade_throw(self._labelled(), a.snap_t, a.anchor.los_abs, a.value_model, rec.air_yards, rec.pass_location,
+                                  name, rec.yards_gained, rec.complete) or a.throw
+        except Exception as e:                                   # a grade is a bonus; a bad play must not stop the film
+            a.last.notes.append(f"could not grade the throw: {e}")
+
     def finish(self) -> None:
         """Put every stored frame of the shot into the final anchor's coordinates and roles."""
         a = self.analyzer
+        if a.anchor is not None and self._frames:
+            self._grade()
         if a.anchor is not None:
             for res, which, slot_ids in self._frames:
                 if not res.anchored:
@@ -649,6 +755,7 @@ class AnalyzedTracker:
         if key != self._key:
             self.finish()                      # the analyzer still holds the old shot's anchor here
             self._key = key
+            self._graded = False
         which = [i for i, p in enumerate(res.players) if p.field_yd is not None]
         a = self.analysis = self.analyzer.update(frame, res, self.tracker)
         if a.players and len(a.players) == len(which):
@@ -658,7 +765,11 @@ class AnalyzedTracker:
         if len(a.slot_ids) == len(which) and which:
             self._frames.append((res, which, list(a.slot_ids)))
             del self._frames[: -self.keep]
+        if a.since_snap is not None and a.since_snap >= self.GRADE_AFTER and self.analyzer.throw is None and not self._graded:
+            self._graded = True
+            self._grade()
         res.lines = self._field_lines(a)
+        res.loose = list(a.loose)                    # only the ones the analysis could name: they are drawn with their names
         return res
 
     def _field_lines(self, a: Analysis) -> list:

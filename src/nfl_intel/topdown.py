@@ -85,7 +85,7 @@ def draw_topdown(view: FieldSlice, analysis, trails: dict[int, list] | None = No
     img = view.base.copy()
     anchor = analysis.anchor
     unseen = {id(p) for p in analysis.unseen}
-    players = [p for p in list(analysis.players) + list(analysis.unseen)
+    players = [p for p in list(analysis.players) + list(getattr(analysis, "loose", [])) + list(analysis.unseen)
                if p.field_yd is not None and -2 < p.field_yd[1] < FIELD_WIDTH + 2 and view.x0 - 1 < p.field_yd[0] < view.x1 + 1]
     ids = {id(p): sid for p, sid in zip(analysis.players, analysis.slot_ids)}
     k = view.height / 720.0                     # everything is sized for a 720-line picture

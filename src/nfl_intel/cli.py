@@ -225,6 +225,9 @@ def _write_plays(tracker, path: Path) -> None:
             line += f"; best moment {p['peak']['value']:.1f} yd to {p['peak']['best']} at +{p['peak']['t']:.1f}s"
         if p.get("result"):
             line += f"; {p['result']}"
+        if p.get("throw"):
+            t = p["throw"]
+            line += f"; threw to {t['target']}, option {t['rank']} of {t['of']} at about +{t['thrown_at']:.1f}s" + ("" if t["firm"] else " (not firm)")
         print(line)
 
 
@@ -530,6 +533,12 @@ def cmd_roles_check(args) -> None:
     check(list(range(int(lo), int(hi or lo) + 1)), noise=args.noise, root=args.data)
 
 
+def cmd_plays_check(args) -> None:
+    from .plays_check import report
+
+    report(args.logs)
+
+
 def cmd_eval(args) -> None:
     from .evaluate import evaluate_files
 
@@ -672,6 +681,10 @@ def build_parser() -> argparse.ArgumentParser:
     rc.add_argument("--noise", type=float, default=0.4, help="position noise in yards, standing in for video")
     rc.add_argument("--data", default="data/bdb/2026-prediction")
     rc.set_defaults(func=cmd_roles_check)
+
+    pc = sub.add_parser("plays-check", help="mark play logs against the play-by-play and the official charting")
+    pc.add_argument("logs", nargs="+", help="<clip>.plays.json files from `nfl run`")
+    pc.set_defaults(func=cmd_plays_check)
 
     ev = sub.add_parser("eval", help="score a tracking CSV against a ground-truth CSV in the same schema")
     ev.add_argument("pred")

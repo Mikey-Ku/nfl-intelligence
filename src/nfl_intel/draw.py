@@ -36,7 +36,7 @@ def annotate(frame: np.ndarray, result: FrameResult, thickness: int = 2) -> np.n
         if len(pts) >= 2:
             cv2.polylines(out, [np.asarray(pts, dtype=np.int32).reshape(-1, 1, 2)], False, LINE_COLORS.get(name, (255, 255, 255)),
                           max(2, frame.shape[0] // 400), cv2.LINE_AA)
-    for p in result.players:
+    for p in list(result.players) + list(getattr(result, "loose", [])):
         x1, y1, x2, y2 = (int(round(v)) for v in p.box)
         color = team_color(p.team)
         cv2.rectangle(out, (x1, y1), (x2, y2), color, thickness)

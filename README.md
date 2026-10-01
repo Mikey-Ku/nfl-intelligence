@@ -126,6 +126,21 @@ the panel keeps its clock, formation and value, marked "read from the sideline v
 is carried along with the one it still sees until they part, instead of vanishing and
 leaving the receiver looking wide open.
 
+**Grading the throw** (`decision.py`) is experimental. The play-by-play says who was thrown
+to, how deep and to which side; that picks out the target on about half the passes. The
+moment of the throw is worked back from when he was at that depth and how long the ball
+flies (fitted to 3,351 real throws: 0.09 s + distance / 20.8 yd/s). Checked against real
+throws that lands within 0.3 s only 41% of the time and within 0.6 s 69%, so a grade is
+marked firm only when the target's rank among the options is the same half a second either
+side. Without tracking the ball it won't get better than that.
+
+`nfl plays-check outputs/*.plays.json` marks play logs against the official charting. On
+42 runs and passes from CAR at CLE (2026 week 3): quarterback named on 39, 22 of 24 passes
+given a value, backs within one of the charting on 35 of 40, defenders in the box within one
+on 17 of 42, pass rushers within one on 13 of 24. Read from the formation alone
+(`--no-hints`), shotgun or under centre is right on 26 of 40. The snap, checked by eye on
+four plays, was 0.0 to 0.2 s late before a 0.12 s correction.
+
 `nfl run` writes `<clip>.plays.json`: one entry per play with the situation, personnel,
 formation, what was found, the value curve against typical, the closest the rush got, and
 the result. `nfl overlay --out live.csv` writes `live.plays.json` the same way.

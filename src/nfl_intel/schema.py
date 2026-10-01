@@ -42,6 +42,7 @@ class FrameResult:
     shot: int = 0                          # camera shot number; goes up at every cut
     anchored: bool = False                 # yards are on the real field, offense moving +x (else relative to the mapping)
     lines: list = field(default_factory=list)   # (name, [(x, y), ...] in source pixels): "scrimmage", "to gain"
+    loose: list = field(default_factory=list)   # people detected on the field this frame that the image tracker hasn't confirmed (track_id -1)
 
 
 def _fmt(v: float | None) -> str:

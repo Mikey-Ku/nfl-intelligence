@@ -153,10 +153,11 @@ def assign_roles(slots: list[Slot], xy_abs: np.ndarray, offense_team: int, los: 
     line = [i for i in off if i != qb and xy[i, 0] - los >= -2.6 and abs(xy[i, 1] - ball) <= BOX]
     line.sort(key=lambda i: abs(xy[i, 1] - ball))
     line = line[:n_line]
-    if eligible is not None:
-        # more receivers than the offense has on the field: the extras nearest the ball are linemen the box missed
+    if True:
+        # more receivers than the offense has on the field (five, unless the list says fewer):
+        # the extras nearest the ball are linemen the box missed
         spare = [i for i in off if i != qb and i not in line]
-        extra = len(spare) - eligible
+        extra = len(spare) - (5 if eligible is None else eligible)
         if extra > 0:
             spare.sort(key=lambda i: (xy[i, 0] - los < -2.6, abs(xy[i, 1] - ball)))
             line += spare[:extra]
@@ -225,25 +226,31 @@ def _defense_look(xy: np.ndarray, idx: dict, los: float, ball: float) -> str:
     return f"{high}, {len(box)}+ in the box"
 
 
-def update_roles(roles: dict[int, str], xy_abs: dict[int, np.ndarray], los: float, since_snap: float, passing: bool = True) -> list[int]:
+def update_roles(roles: dict[int, str], xy_abs: dict[int, np.ndarray], los: float, since_snap: float, passing: bool = True,
+                 ball_y: float | None = None, eligible: int = 5) -> list[int]:
     """Correct roles from what players do after the snap. Returns the ids that changed.
 
     Where a man stands says what he probably is; where he goes says what he is. A defender
-    who crosses the line is rushing. A man on the defensive line who backs off is covering.
-    On a pass, a "lineman" who runs downfield was a tight end: linemen can't.
+    who comes through the line near the ball in the first two seconds of a pass is rushing;
+    later, or out wide, or on a run, he is chasing the ball like everyone else. A man on the
+    defensive line who backs off is covering. On a pass, a "lineman" who runs downfield was a
+    tight end, as long as the offense still has a receiver unaccounted for.
     """
     changed = []
+    receivers = sum(1 for r in roles.values() if r == "REC")
     for sid, role in list(roles.items()):
         if sid not in xy_abs:
             continue
         d = float(xy_abs[sid][0]) - los
+        near_ball = ball_y is None or abs(float(xy_abs[sid][1]) - ball_y) <= 9.0
         new = role
-        if role == "DEF" and d < -0.7:
+        if role == "DEF" and passing and since_snap <= 2.0 and d < -0.7 and near_ball:
             new = "DL"
         elif role == "DL" and since_snap >= 0.6 and d >= 2.5:
             new = "DEF"
-        elif role == "OL" and passing and 0.4 <= since_snap <= 2.5 and d >= 1.5:
+        elif role == "OL" and passing and 0.4 <= since_snap <= 2.5 and d >= 1.5 and receivers < eligible:
             new = "REC"
+            receivers += 1
         if new != role:
             roles[sid] = new
             changed.append(sid)

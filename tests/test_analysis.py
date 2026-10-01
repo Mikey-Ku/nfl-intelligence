@@ -296,3 +296,27 @@ def test_kicks_are_left_alone():
     flagged = PlayAnalyzer(SeparationModel(), record=_record("no_play"))
     _run(frames[:30], flagged)
     assert flagged.value_note().startswith("No play (penalty).")
+
+
+def test_a_defender_lost_and_found_again_keeps_his_name():
+    import copy
+
+    frames, snap_at = film()
+    gone = (snap_at + 0.6, snap_at + 2.1)                      # the deep safety drops out for a second and a half
+    cut = []
+    for f in frames:
+        g = copy.deepcopy(f)
+        if gone[0] <= f.t <= gone[1]:
+            g.players = [p for p in g.players if p.track_id != 20]
+        elif f.t > gone[1]:
+            for p in g.players:
+                if p.track_id == 20:
+                    p.track_id = 99                               # and comes back as a new track
+        cut.append(g)
+    an = PlayAnalyzer(SeparationModel(), record=_record())
+    out = _run(cut, an)
+    before = next(o for o, f in zip(out, cut) if snap_at + 0.3 < f.t < gone[0])
+    name = next(p.label for p in before.players if p.track_id == 20)
+    back = next(p for p in out[-1].players if p.track_id == 99)
+    assert name.startswith("D") and back.role == "DEF" and back.label == name
+    assert list(an.labels.values()).count(name) == 1             # one man, one name

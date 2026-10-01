@@ -129,8 +129,10 @@ class PlayTracker:
         if self.registrar is not None and self.field is not None:
             mapping = self.registrar.update(frame, self.field, dets.xyxy if len(dets) else None)
         dets = self.tracker.update(dets, frame)
+        unconfirmed = None
         if len(dets) and dets.tracker_id is not None:
-            dets = dets[dets.tracker_id >= 0]          # BoT-SORT marks unconfirmed tracks with -1
+            unconfirmed = dets[dets.tracker_id < 0]    # BoT-SORT marks unconfirmed tracks with -1
+            dets = dets[dets.tracker_id >= 0]
         if len(dets) and dets.tracker_id is not None:
             dets.tracker_id = dets.tracker_id + self._id_offset
             self._max_id = max(self._max_id, int(dets.tracker_id.max()))
@@ -155,7 +157,25 @@ class PlayTracker:
                     foot_px=(float(feet[i, 0]), float(feet[i, 1])),
                     field_yd=None if field is None else (float(field[i, 0]), float(field[i, 1])),
                 ))
-        return FrameResult(frame=frame_idx, t=t, size=(w, h), players=players, shot=self.shot)
+        loose = self._loose(frame, unconfirmed, mapping)
+        return FrameResult(frame=frame_idx, t=t, size=(w, h), players=players, shot=self.shot, loose=loose)
+
+    def _loose(self, frame: np.ndarray, dets, mapping) -> list[TrackedPlayer]:
+        """People on the field that the image tracker hasn't confirmed yet. On a mapped field
+        they are worth keeping: tracking in yards can tell who they are when the picture can't."""
+        if dets is None or len(dets) == 0 or mapping is None or self.field is None:
+            return []
+        feet = np.column_stack([(dets.xyxy[:, 0] + dets.xyxy[:, 2]) / 2, dets.xyxy[:, 3]])
+        on = np.array([bool(self.field.foot_on_field(x, y)) for x, y in feet])
+        if not on.any():
+            return []
+        boxes, feet = dets.xyxy[on], feet[on]
+        conf = dets.confidence[on] if dets.confidence is not None else np.zeros(len(boxes))
+        teams = self.teams.look(frame, boxes, self.field.grass_lab)
+        yards = cv2.perspectiveTransform(feet.reshape(-1, 1, 2).astype(np.float64), mapping).reshape(-1, 2)
+        return [TrackedPlayer(track_id=-1, team=teams[i], box=tuple(float(v) for v in boxes[i]), conf=float(conf[i]),
+                              foot_px=(float(feet[i, 0]), float(feet[i, 1])), field_yd=(float(yards[i, 0]), float(yards[i, 1])))
+                for i in range(len(boxes))]
 
     def run(self, source: Iterable[tuple[int, float, np.ndarray]]) -> Iterator[FrameResult]:
         for idx, t, frame in source:

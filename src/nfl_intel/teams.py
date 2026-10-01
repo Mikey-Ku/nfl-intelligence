@@ -130,6 +130,16 @@ class TeamAssigner:
     def reset(self) -> None:
         self.__init__(self.warmup_frames, self.min_samples, self.classifier.k)
 
+    def look(self, frame: np.ndarray, boxes, grass_lab: np.ndarray | None = None) -> list[int | None]:
+        """Team by jersey for boxes that have no track: one look, no memory, no learning."""
+        if not self.classifier.fitted:
+            return [None] * len(boxes)
+        out: list[int | None] = []
+        for b in boxes:
+            f = jersey_feature(torso_crop(frame, b), grass_lab)
+            out.append(None if f is None else int(self.classifier.predict(f[None])[0]))
+        return out
+
     def assign(self, frame: np.ndarray, boxes, track_ids, grass_lab: np.ndarray | None = None) -> list[int | None]:
         feats = [jersey_feature(torso_crop(frame, b), grass_lab) for b in boxes]
         self._frames += 1

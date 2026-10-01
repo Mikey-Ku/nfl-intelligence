@@ -56,6 +56,7 @@ class FieldTracker:
         self.coast = coast                    # seconds a slot survives unseen
         self.merge_within = merge_within      # two opponents closer than this can share one box
         self.hidden_for = hidden_for          # seconds a slot survives hidden behind its partner
+        self.partner_gap = 0.6                # a partner unseen this long is no longer a guide
         self.smooth = smooth                  # weight of the new measurement in the position
         self.velocity_window = velocity_window
         self.team_penalty = team_penalty      # yards added to the cost of matching across teams
@@ -105,8 +106,10 @@ class FieldTracker:
             if s.partner is None and s.hits >= self.min_hits:
                 s.partner, s.offset = self._hidden_behind(s, t)
             partner = by_id.get(s.partner) if s.partner is not None else None
-            if partner is not None and partner.seen == t:
-                s.xy, s.v, s.t = partner.xy + s.offset, partner.v.copy(), t
+            if partner is not None and t - partner.seen <= self.partner_gap:
+                # the partner may miss a frame or two himself; where he is thought to be is still the best guide
+                where = partner.xy if partner.t >= t else partner.predict(t)
+                s.xy, s.v, s.t = where + s.offset, partner.v.copy(), t
                 continue
             if partner is not None:
                 s.partner, s.offset = None, None               # the partner is gone too: nothing to follow
@@ -171,7 +174,8 @@ class SnapDetector:
     """
 
     def __init__(self, speed: float = 1.6, share: float = 0.4, hold: float = 0.12, min_players: int = 8, settle: float = 0.6,
-                 rise: float = 0.2, look_back: float = 1.2):
+                 rise: float = 0.2, look_back: float = 1.2, lead: float = 0.12):
+        self.lead = lead          # checked by eye on film: the walk-back still lands this long after the ball moves
         self.speed, self.share, self.hold = speed, share, hold
         self.min_players, self.settle = min_players, settle
         self.rise, self.look_back = rise, look_back
@@ -220,7 +224,7 @@ class SnapDetector:
                 self._since = t
             elif t - self._since >= self.hold:
                 self.seen_t = t
-                self.snap_t = self._walk_back(t)
+                self.snap_t = self._walk_back(t) - self.lead
         else:
             self._since = None
         return self.snap_t
