@@ -163,8 +163,10 @@ def cmd_windows(args) -> None:
         print(w)
 
 
-def _shot(frame, res, snap, tracker, path: Path) -> None:
-    """One test image: the annotated field next to the stats panel."""
+def _compose(frame, res, snap, tracker, fixed: bool = False) -> np.ndarray:
+    """The annotated field, the top-down view and the stats panel side by side, 900 pixels high.
+    `fixed` gives every frame the same size (for video): the film is letterboxed into 1600
+    pixels and the top-down slot is kept even while there is nothing to draw in it."""
     from .draw import annotate
     from .fieldmask import expand_bbox
     from .panel import qimage_to_bgr, render_panel
@@ -183,15 +185,37 @@ def _shot(frame, res, snap, tracker, path: Path) -> None:
         x1, y1, x2, y2 = expand_bbox(field.bbox, frame.shape, margin=0.04)
         img = img[y1:y2, x1:x2]
     height = 900
-    img = cv2.resize(img, (int(img.shape[1] * height / img.shape[0]), height), interpolation=cv2.INTER_AREA)
-    panel = qimage_to_bgr(render_panel(snap, 320, 600, dpr=1.5))
     gap = np.full((height, 16, 3), 20, dtype=np.uint8)
+    if fixed:
+        k = min(1600 / img.shape[1], height / img.shape[0])
+        small = cv2.resize(img, (int(img.shape[1] * k), int(img.shape[0] * k)), interpolation=cv2.INTER_AREA)
+        img = np.full((height, 1600, 3), 20, dtype=np.uint8)
+        oy, ox = (height - small.shape[0]) // 2, (1600 - small.shape[1]) // 2
+        img[oy : oy + small.shape[0], ox : ox + small.shape[1]] = small
+    else:
+        img = cv2.resize(img, (int(img.shape[1] * height / img.shape[0]), height), interpolation=cv2.INTER_AREA)
+    panel = qimage_to_bgr(render_panel(snap, 320, 600, dpr=1.5))
     parts = [img, gap]
     if anchor is not None and analysis.players:
         from .topdown import draw_topdown, view_for
 
-        parts += [draw_topdown(view_for(analysis, height), analysis), gap]
-    cv2.imwrite(str(path), np.hstack(parts + [panel]), [cv2.IMWRITE_JPEG_QUALITY, 88])
+        top = draw_topdown(view_for(analysis, height), analysis)
+        if fixed:                                      # the slice of field shown is 40 to 50 yards long: one slot fits both
+            slot = np.full((height, 850, 3), 20, dtype=np.uint8)
+            k = min(850 / top.shape[1], 1.0)
+            top = cv2.resize(top, (int(top.shape[1] * k), int(top.shape[0] * k)), interpolation=cv2.INTER_AREA) if k < 1 else top
+            oy, ox = (height - top.shape[0]) // 2, (850 - top.shape[1]) // 2
+            slot[oy : oy + top.shape[0], ox : ox + top.shape[1]] = top
+            top = slot
+        parts += [top, gap]
+    elif fixed:
+        parts += [np.full((height, 850, 3), 20, dtype=np.uint8), gap]
+    return np.hstack(parts + [panel])
+
+
+def _shot(frame, res, snap, tracker, path: Path) -> None:
+    """One test image: the annotated field, the top-down view and the stats panel."""
+    cv2.imwrite(str(path), _compose(frame, res, snap, tracker), [cv2.IMWRITE_JPEG_QUALITY, 88])
 
 
 def _build_live_stats(tracker):
@@ -384,6 +408,7 @@ def cmd_run(args) -> None:
         writer = None
         if args.save_video:
             writer = cv2.VideoWriter(str(out_dir / f"{stem}.annotated.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), src.fps, src.size)
+        demo = None
         topdown = None
         if args.topdown and hasattr(tracker, "analysis"):
             from .topdown import TopDownWriter
@@ -399,6 +424,12 @@ def cmd_run(args) -> None:
             snap = stats.update(res, tracker.field.bbox if tracker.field is not None else None)
             if topdown is not None:
                 topdown.add(res, tracker.analysis, snap)
+            if args.demo:
+                picture = _compose(frame, res, snap, tracker, fixed=True)
+                picture = cv2.resize(picture, (1920, int(picture.shape[0] * 1920 / picture.shape[1]) // 2 * 2), interpolation=cv2.INTER_AREA)
+                if demo is None:
+                    demo = cv2.VideoWriter(str(out_dir / f"{stem}.demo.mp4"), cv2.VideoWriter_fourcc(*"avc1"), src.fps, (picture.shape[1], picture.shape[0]))
+                demo.write(picture)
             _narrate(tracker, res, told)
             if args.shots and res.players and t - last_shot >= args.shot_every:
                 last_shot = t
@@ -415,6 +446,9 @@ def cmd_run(args) -> None:
                         break
         if writer is not None:
             writer.release()
+        if demo is not None:
+            demo.release()
+            print(f"  demo video -> {out_dir / f'{stem}.demo.mp4'}")
         if topdown is not None:
             topdown.close()
             for made in topdown.paths:
@@ -610,6 +644,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--shots", help="save test images (annotated field + stats panel) into this folder")
     r.add_argument("--shot-every", type=float, default=2.0, help="seconds between test images")
     r.add_argument("--topdown", action="store_true", help="also write a top-down replay with the stats panel for every shot that anchors")
+    r.add_argument("--demo", action="store_true", help="also write <clip>.demo.mp4: film, top-down view and panel side by side")
     r.add_argument("--start", type=float, default=0.0, help="begin this many seconds into the clip")
     r.add_argument("--stop", type=float, default=None, help="end this many seconds into the clip")
     r.set_defaults(func=cmd_run)
