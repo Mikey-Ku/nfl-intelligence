@@ -11,6 +11,7 @@ def _play(**kw):
 
 def test_the_look_is_read_back_as_numbers():
     assert _look(_play()) == {"shotgun": True, "backs": 1, "box": 6, "rushers": 4}
+    assert _look(_play(rushers=5))["rushers"] == 5                # counted a second and a half in, when the log has it
     assert _look(_play(offense_look="Under centre, 2 x 1, empty", defense_look=""))["backs"] == 0
     assert _look(_play(offense_look="Not at the line yet"))["shotgun"] is None
 

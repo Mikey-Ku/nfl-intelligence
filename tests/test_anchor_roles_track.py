@@ -419,3 +419,15 @@ def test_a_man_who_simply_leaves_is_not_kept():
         pts = [np.array([20.0, 10.0]), np.array([40.0, 30.0])] if f < 20 else [np.array([20.0, 10.0])]
         tr.update(t, np.array(pts), [0, 1][: len(pts)], list(range(len(pts))))
     assert len(tr.slots) == 1                                          # nobody near him to hide behind: gone after a second
+
+
+def test_officials_beyond_eleven_a_side_are_left_out():
+    # the referee twelve yards behind the passer, the back judge twenty-five yards deep, a line judge on the sideline
+    crowd = SHOTGUN + [("REF", -12.5, 26.0), ("BJ", 25.0, 27.0), ("LJ", 0.0, 0.5)]
+    s, xy = slots(crowd)
+    off, dfn = sides(s, xy, 0, LOS)
+    assert len(off) == 11 and len(dfn) == 11
+    assert 22 not in off and 23 not in dfn and 24 not in off + dfn
+    roles = assign_roles(s, xy, 0, LOS)
+    assert roles[22] == "OFF" and roles[23] == "OFF" and roles[24] == "OFF"
+    assert sum(r in ("DEF", "DL") for r in roles.values()) == 11 and roles[0] == "QB"

@@ -271,6 +271,8 @@ class PlayAnalyzer(AnalysisView):
             peak = max(curve, key=lambda c: c["value"])
             out["peak"] = {"t": peak["t"], "value": peak["value"], "best": peak["best"]}
             out["coverage_read"] = self._held[1]
+        if self.rushers is not None:
+            out["rushers"] = self.rushers
         if self.throw is not None:
             out["throw"] = self.throw.as_dict()
         if self.closest_rush is not None:
@@ -287,6 +289,7 @@ class PlayAnalyzer(AnalysisView):
         self.numbers = None                 # (goal line, side) read off the painted yard numbers
         self.huddle = None                  # (team, x) of the offense's huddle, if the shot showed one
         self.closest_rush = None            # (yards, seconds after the snap) when a rusher was nearest the quarterback
+        self.rushers: int | None = None     # how many came after the passer, counted a second and a half in
         self.throw = None                   # decision.ThrowGrade for this play
         self._known: dict[int, tuple] = {}   # slot id -> (time seen, position, velocity) of players with a role
         self._number_tries = 0
@@ -496,6 +499,20 @@ class PlayAnalyzer(AnalysisView):
                 for s in self.tracker.slots:
                     s.role, s.label = self.roles.get(s.id), self.labels.get(s.id)
 
+    def _count_rushers(self) -> int:
+        """The pass rush as the charting counts it: defenders who came for the passer, a second
+        and a half in, near enough to the ball to be rushing rather than running down a route."""
+        qb = next((sid for sid, r in self.roles.items() if r == "QB" and sid in self.at_snap), None)
+        ball = float(self.at_snap[qb][1]) if qb is not None else 26.7
+        n = 0
+        for s in self.tracker.slots:
+            if self.roles.get(s.id) != "DL":
+                continue
+            x, y = self.anchor.to_absolute(s.xy)[0]
+            if x - self.anchor.los_abs <= 1.0 and abs(y - ball) <= 9.0:
+                n += 1
+        return n
+
     def _rush(self) -> tuple[float, float] | None:
         """How close the nearest rusher is to the quarterback and how fast he is closing.
         The value model can't see the rush (its training data has no linemen), so the panel
@@ -650,6 +667,8 @@ class PlayAnalyzer(AnalysisView):
                 self._reclaim(result.t)
                 self._watch_roles(since)
                 out.rush = self._rush()
+                if self.rushers is None and since >= 1.5 and self._passing:
+                    self.rushers = self._count_rushers()
                 if out.rush is not None and (self.closest_rush is None or out.rush[0] < self.closest_rush[0]):
                     self.closest_rush = (out.rush[0], since)
             if out.live and passing:

@@ -24,7 +24,7 @@ def _look(play: dict) -> dict:
         "shotgun": look.startswith("Shotgun") if look.startswith(("Shotgun", "Under")) else None,
         "backs": int(backs.group(1)) if backs else (0 if "empty" in look else None),
         "box": int(box.group(1)) if box else None,
-        "rushers": (play.get("found") or {}).get("DL"),
+        "rushers": play.get("rushers", (play.get("found") or {}).get("DL")),
     }
 
 

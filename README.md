@@ -136,10 +136,12 @@ side. Without tracking the ball it won't get better than that.
 
 `nfl plays-check outputs/*.plays.json` marks play logs against the official charting. On
 42 runs and passes from CAR at CLE (2026 week 3): quarterback named on 39, 22 of 24 passes
-given a value, backs within one of the charting on 35 of 40, defenders in the box within one
-on 17 of 42, pass rushers within one on 13 of 24. Read from the formation alone
-(`--no-hints`), shotgun or under centre is right on 26 of 40. The snap, checked by eye on
-four plays, was 0.0 to 0.2 s late before a 0.12 s correction.
+given a value, backs within one of the charting on 39 of 40 (exact 15), defenders in the box
+within one on 36 of 42 (exact 16), pass rushers within one on 21 of 24 (exact 6). Read from
+the formation alone (`--no-hints`), shotgun or under centre is right on 26 of 40. Each side is
+held to eleven men (the rest are officials), and the rush is counted a second and a half after
+the snap, as the charting counts it. The snap, checked by eye on four plays, was 0.0 to 0.2 s
+late before a 0.12 s correction.
 
 `nfl run` writes `<clip>.plays.json`: one entry per play with the situation, personnel,
 formation, what was found, the value curve against typical, the closest the rush got, and

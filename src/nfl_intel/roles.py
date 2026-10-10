@@ -46,7 +46,13 @@ def line_chain(y: np.ndarray, gap: float = 2.3) -> list[list[int]]:
 
 
 def sides(slots: list[Slot], xy: np.ndarray, offense_team: int, los: float) -> tuple[list[int], list[int]]:
-    """Indices of the offense and of the defense, by which side of the ball they stand on."""
+    """Indices of the offense and of the defense, by which side of the ball they stand on.
+
+    Each side has eleven men. Anyone beyond that is an official or a stray from the bench,
+    and the ones that look least like players are the ones left out: on offense whoever is
+    deepest behind the ball (the referee stands well behind the passer), on defense whoever
+    is deepest or widest (the back judge, the sideline officials).
+    """
     off, dfn = [], []
     for i, s in enumerate(slots):
         d, y = xy[i, 0] - los, xy[i, 1]
@@ -58,7 +64,19 @@ def sides(slots: list[Slot], xy: np.ndarray, offense_team: int, los: float) -> t
             dfn.append(i)
         elif s.team is not None:
             (off if s.team == offense_team else dfn).append(i)
+    if off or dfn:
+        mid = float(np.median(xy[off + dfn, 1]))
+        off = _eleven(off, lambda i: max(0.0, -(xy[i, 0] - los) - 8.0) + max(0.0, abs(xy[i, 1] - mid) - 24.0))
+        dfn = _eleven(dfn, lambda i: max(0.0, (xy[i, 0] - los) - 16.0) + max(0.0, abs(xy[i, 1] - mid) - 24.0))
     return off, dfn
+
+
+def _eleven(side: list[int], oddness) -> list[int]:
+    """At most eleven, dropping the oddest first."""
+    if len(side) <= 11:
+        return side
+    keep = sorted(side, key=oddness)[:11]
+    return [i for i in side if i in keep]
 
 
 HASH_SPOT = {"L": HASH_HIGH, "R": HASH_LOW, "M": (HASH_LOW + HASH_HIGH) / 2.0}     # the offense's left is +y
