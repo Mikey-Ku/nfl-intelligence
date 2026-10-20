@@ -23,14 +23,14 @@ from nfl_intel.cli import _build_live, _compose                # noqa: E402
 from nfl_intel.panel import qimage_to_bgr, render_panel        # noqa: E402
 from nfl_intel.topdown import draw_topdown, view_for           # noqa: E402
 
-# clip, seconds in, seconds out, caption
+# clip, seconds in (just after the shot's cut, so the previous play doesn't show), seconds out, caption
 SEGMENTS = [
-    ("data/clips/live-01.mp4", 38.0, 45.0, "ATL at GB, Q4 8:21. Love to Golden, 15 yd TD. The play is read off the screen; the field is anchored by reading the painted numbers."),
-    ("data/clips/live-02.mp4", 20.0, 42.0, "CAR at CLE, Q1 14:10. Young to Tremayne, 16 yd. Roles at the snap, then the best throw and its expected yards, live."),
-    ("data/clips/live-04.mp4", 203.0, 225.0, "CAR at CLE, Q2 11:56. Young to Evans, 11 yd. The panel compares the play with a typical one from the same stretch of field."),
-    ("data/clips/live-04.mp4", 240.0, 258.0, "CAR at CLE, Q2 10:44. Young to Tremble, 9 yd. Names come from NFL Pro's on-field list; D1..D8 are coverage defenders."),
-    ("data/clips/live-04.mp4", 410.0, 428.0, "CAR at CLE, Q2 7:10. Watson to Fannin, 8 yd. The nearest rusher is shown beside the value: the model can't see the rush."),
-    ("data/clips/live-04.mp4", 548.0, 566.0, "CAR at CLE, Q2 3:36. Judkins run, 11 yd. Runs get the formation, personnel and box count; only passes get a value."),
+    ("data/clips/live-01.mp4", 38.2, 45.0, "ATL at GB, Q4 8:21. Love to Golden, 15 yd TD. The play is read off the screen; the field is anchored by reading the painted numbers."),
+    ("data/clips/live-02.mp4", 21.9, 42.0, "CAR at CLE, Q1 14:10. Young to Tremayne, 16 yd. Roles at the snap, then the best throw and its expected yards, live."),
+    ("data/clips/live-04.mp4", 206.4, 225.0, "CAR at CLE, Q2 11:56. Young to Evans, 11 yd. The panel compares the play with a typical one from the same stretch of field."),
+    ("data/clips/live-04.mp4", 240.9, 258.0, "CAR at CLE, Q2 10:44. Young to Tremble, 9 yd. Names come from NFL Pro's on-field list; D1..D8 are coverage defenders."),
+    ("data/clips/live-04.mp4", 411.1, 428.0, "CAR at CLE, Q2 7:10. Watson to Fannin, 8 yd. The nearest rusher is shown beside the value: the model can't see the rush."),
+    ("data/clips/live-04.mp4", 548.9, 566.0, "CAR at CLE, Q2 3:36. Judkins run, 11 yd. Runs get the formation, personnel and box count; only passes get a value."),
 ]
 
 HEIGHT, BAR = 900, 70
