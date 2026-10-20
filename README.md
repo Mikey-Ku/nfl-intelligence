@@ -11,6 +11,24 @@ screen / clip ─► YOLO (pretrained) ─► BoT-SORT ─► jersey k-means ─
       play header (OCR) ─► play-by-play row ─► real yard line ─► roles at the snap ─► pass value, live
 ```
 
+## Results at a glance
+
+Measured on two games of NFL Pro film (about 17 minutes, 45 runs and passes) and against
+FTN's official charting; the full account, with where each number comes from, is in
+[docs/SHOWCASE.md](docs/SHOWCASE.md).
+
+| | |
+|---|---|
+| Plays identified from the screen and matched to the play-by-play | every run and pass |
+| Field anchored to real yard lines by reading the painted numbers | 36 of 40 |
+| Quarterback picked out / passes given a live value | 39 of 42 / 22 of 24 |
+| Backs, box, rushers within one of the charting | 39 of 40, 36 of 42, 21 of 24 |
+| Catch model, held-out weeks | AUC 0.76, calibrated within 3 points |
+| Throughput, 4K capture on an Apple M5 | about 17 frames a second |
+
+`scripts/make_showcase.py` builds the demo videos (`outputs/showcase/`): a sideline cut
+with the film, and a top-down cut with no film in it that can be published.
+
 ## Setup
 
 ```bash
