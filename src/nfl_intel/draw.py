@@ -1,4 +1,4 @@
-"""OpenCV drawing for annotated frames and the top-down minimap."""
+"""OpenCV drawing: boxes and labels on a frame, and the small top-down minimap."""
 
 from __future__ import annotations
 

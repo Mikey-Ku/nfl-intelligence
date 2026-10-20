@@ -30,7 +30,7 @@ from .playinfo import PlayRecord, match_play, read_screen
 from .roles import assign_roles, describe_look, lined_up, update_roles
 from .schema import FrameResult, TrackedPlayer
 from .stats import LiveStats
-from .value import PassValueModel, ReceiverScore, play_value, receiver_features
+from .value import PassValueModel, ReceiverScore, play_value, receiver_features, what_changed
 
 LIVE_FOR = 4.5                # seconds after the snap that "best throw available" still means something
 FORMATION_AT = 0.1            # roles are read from where players stood this long before the snap
@@ -146,25 +146,7 @@ class AnalysisView:
         b = {s.index: s for s in self.history[int(np.argmin(np.abs(times - t1)))][1]}
         va = max((s.expected_yards for s in a.values()), default=0.0)
         vb = max((s.expected_yards for s in b.values()), default=0.0)
-        rising = vb >= va
-        pick, change = None, 0.0
-        for idx, s1 in b.items():
-            if idx in a:
-                d = s1.expected_yards - a[idx].expected_yards
-                if (rising and d > change) or (not rising and d < change):
-                    pick, change = idx, d
-        if pick is None:
-            return ""
-        s0, s1 = a[pick], b[pick]
-        if rising:
-            if s1.separation - s0.separation >= 0.5:
-                return f"{s1.label} opens up, {s0.separation:.1f} to {s1.separation:.1f} yd of space"
-            if s1.depth - s0.depth >= 1.0:
-                return f"{s1.label} gets deeper, {s0.depth:.0f} to {s1.depth:.0f} yd downfield"
-            return f"{s1.label} becomes the better throw"
-        if s1.separation - s0.separation <= -0.5:
-            return f"{s1.label} gets covered, {s0.separation:.1f} to {s1.separation:.1f} yd of space"
-        return f"{s1.label} defender closing, catch chance {s0.p_catch:.0%} to {s1.p_catch:.0%}"
+        return what_changed(a, b, vb >= va)
 
     def rows(self, _result=None) -> list[tuple[str, str]]:
         a = self.last

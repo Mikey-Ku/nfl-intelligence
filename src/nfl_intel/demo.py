@@ -17,7 +17,7 @@ from .bdb import HZ, Play
 from .field import FIELD_WIDTH
 from .schema import FrameResult, TrackedPlayer
 from .stats import LiveStats
-from .value import PassValueModel, ReceiverScore, play_value, velocities
+from .value import PassValueModel, ReceiverScore, play_value, velocities, what_changed
 
 OFFENSE = (255, 170, 80)      # BGR
 DEFENSE = (60, 200, 255)
@@ -91,27 +91,7 @@ def explain(sp: ScoredPlay, t0: float, t1: float) -> str:
     i1 = min(len(sp.scores) - 1, max(0, int(round(t1 * HZ))))
     a = {s.index: s for s in sp.scores[i0]}
     b = {s.index: s for s in sp.scores[i1]}
-    rising = sp.values[i1] >= sp.values[i0]
-    pick, change = None, 0.0
-    for idx, s1 in b.items():
-        if idx not in a:
-            continue
-        d = s1.expected_yards - a[idx].expected_yards
-        if (rising and d > change) or (not rising and d < change):
-            pick, change = idx, d
-    if pick is None:
-        return ""
-    s0, s1 = a[pick], b[pick]
-    d_sep, d_depth = s1.separation - s0.separation, s1.depth - s0.depth
-    if rising:
-        if d_sep >= 0.5:
-            return f"{s1.label} opens up, {s0.separation:.1f} to {s1.separation:.1f} yd of space"
-        if d_depth >= 1.0:
-            return f"{s1.label} gets deeper, {s0.depth:.0f} to {s1.depth:.0f} yd downfield"
-        return f"{s1.label} becomes the better throw"
-    if d_sep <= -0.5:
-        return f"{s1.label} gets covered, {s0.separation:.1f} to {s1.separation:.1f} yd of space"
-    return f"{s1.label} defender closing, catch chance {s0.p_catch:.0%} to {s1.p_catch:.0%}"
+    return what_changed(a, b, sp.values[i1] >= sp.values[i0])
 
 
 def decision(sp: ScoredPlay) -> tuple[str, str] | None:

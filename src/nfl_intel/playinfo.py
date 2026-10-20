@@ -122,10 +122,6 @@ def read_screen(frame: np.ndarray, downscale: int = 2):
     return parse_header([b.text for b in boxes]), on_field
 
 
-def read_header(frame: np.ndarray, downscale: int = 2) -> PlayHeader:
-    return read_screen(frame, downscale)[0]
-
-
 def load_play_by_play(season: int, root: str | Path = NFLVERSE):
     import polars as pl
 

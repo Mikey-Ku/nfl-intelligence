@@ -1,4 +1,10 @@
-"""PlayTracker: field crop + detector + tracker + team clustering (+ calibration) per frame."""
+"""PlayTracker: one frame in, a FrameResult out.
+
+Per frame: notice a camera cut, find the grass, detect people on it, keep their ids, colour
+them by team, and map their feet to yards through the field registration (or a hand-made
+calibration). Detections the image tracker hasn't confirmed yet are passed on as `loose`
+for the yard-space tracker to use.
+"""
 
 from __future__ import annotations
 

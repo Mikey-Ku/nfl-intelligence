@@ -18,7 +18,6 @@ same code runs on sensor data and on video-derived tracking once it is in yards.
 from __future__ import annotations
 
 import pickle
-from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -153,27 +152,26 @@ def play_value(scores: list[ReceiverScore]) -> tuple[float, ReceiverScore | None
     return max(0.0, best.expected_yards), best
 
 
-class Kinematics:
-    """Velocities for live tracks: smoothed positions, differenced over VELOCITY_LAG seconds."""
+def what_changed(before: dict, after: dict, rising: bool) -> str:
+    """One sentence on the receiver whose expected yards moved most between two moments.
 
-    def __init__(self, lag: float = VELOCITY_LAG, smooth: float = 0.5):
-        self.lag = lag
-        self.smooth = smooth            # weight of the newest position in the running average
-        self._hist: dict[int, deque] = {}
-
-    def update(self, track_id: int, t: float, xy) -> tuple[np.ndarray, np.ndarray]:
-        """Returns (smoothed position, velocity) for this track."""
-        h = self._hist.setdefault(track_id, deque(maxlen=64))
-        p = np.asarray(xy, dtype=np.float64)
-        if h:
-            p = self.smooth * p + (1 - self.smooth) * h[-1][1]
-        h.append((t, p))
-        while len(h) > 2 and t - h[1][0] >= self.lag:
-            h.popleft()
-        t0, p0 = h[0]
-        v = (p - p0) / (t - t0) if t > t0 else np.zeros(2)
-        return p, v
-
-    def forget(self, keep: set[int]) -> None:
-        for tid in [k for k in self._hist if k not in keep]:
-            del self._hist[tid]
+    `before` and `after` map a receiver's index to his ReceiverScore at each moment;
+    `rising` says whether the play value went up between them."""
+    pick, change = None, 0.0
+    for idx, s1 in after.items():
+        if idx in before:
+            d = s1.expected_yards - before[idx].expected_yards
+            if (rising and d > change) or (not rising and d < change):
+                pick, change = idx, d
+    if pick is None:
+        return ""
+    s0, s1 = before[pick], after[pick]
+    if rising:
+        if s1.separation - s0.separation >= 0.5:
+            return f"{s1.label} opens up, {s0.separation:.1f} to {s1.separation:.1f} yd of space"
+        if s1.depth - s0.depth >= 1.0:
+            return f"{s1.label} gets deeper, {s0.depth:.0f} to {s1.depth:.0f} yd downfield"
+        return f"{s1.label} becomes the better throw"
+    if s1.separation - s0.separation <= -0.5:
+        return f"{s1.label} gets covered, {s0.separation:.1f} to {s1.separation:.1f} yd of space"
+    return f"{s1.label} defender closing, catch chance {s0.p_catch:.0%} to {s1.p_catch:.0%}"

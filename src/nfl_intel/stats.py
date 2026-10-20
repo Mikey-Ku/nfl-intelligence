@@ -1,15 +1,9 @@
-"""Live numbers for the side panel, computed from the tracking stream.
+"""Live numbers for the side panel, from the stream of frames.
 
-Three tiers, each filling in as the pipeline gains a capability:
-  now              players on the field per team, fps, tracking health, play segmentation
-  with calibration metrics in yards (formation, box count, separation...) via `metrics_fn`
-  with a model     play value frame by frame, its change since the snap (the plus/minus),
-                   and the biggest swings, via `value_fn`
-
-`metrics_fn(result) -> list[(label, value)]` and `value_fn(result) -> float` are plugged in by
-the caller; both only run on frames that have field coordinates. The value is a fraction
-(shown as a percentage) or yards, per `value_unit`. `explain_fn(t0, t1) -> str` names what
-moved the value between two moments of the play.
+Counts players per team, keeps tracking health, segments plays, and keeps the value's
+history with its biggest swings. Everything football-specific comes in as a function the
+caller plugs in (`value_fn`, `metrics_fn`, `explain_fn`...), so the panel works with or
+without the analysis behind it.
 """
 
 from __future__ import annotations

@@ -255,6 +255,11 @@ on the real field in the Big Data Bowl convention (x 0–120 along the field wit
 moving +x, y 0–53.3 across it), so anything built on that data runs on ours. With 0 they are
 relative to the mapping's first yard line.
 
+## Reading the code
+
+[docs/REPO_GUIDE.md](docs/REPO_GUIDE.md) goes through every file and how a play travels
+through them.
+
 ## Tests
 
 ```bash

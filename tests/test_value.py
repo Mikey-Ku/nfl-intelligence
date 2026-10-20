@@ -5,7 +5,7 @@ import pytest
 
 from nfl_intel.bdb import HZ, Play
 from nfl_intel.demo import decision, explain, make_stats, score_plays, short_name, to_results
-from nfl_intel.value import FEATURES, Kinematics, PassValueModel, play_value, receiver_features, velocities
+from nfl_intel.value import FEATURES, PassValueModel, play_value, receiver_features, velocities
 from nfl_intel.value_train import evaluate, fit
 
 
@@ -94,15 +94,6 @@ def test_play_value_picks_the_best_expected_yards():
     b = ReceiverScore(2, 0.4, 30.0, 12.0, 1.0, "deep")
     assert play_value([a, b]) == (12.0, b)
     assert play_value([]) == (0.0, None)
-
-
-def test_kinematics_smooths_and_differences():
-    k = Kinematics(lag=0.4, smooth=1.0)
-    for i in range(10):
-        p, v = k.update(3, i / 10, (i * 0.5, 20.0))
-    assert v[0] == pytest.approx(5.0) and v[1] == pytest.approx(0.0)
-    k.forget(set())
-    assert k.update(3, 1.0, (9.0, 20.0))[1].tolist() == [0.0, 0.0]
 
 
 def test_short_name_drops_suffixes():
