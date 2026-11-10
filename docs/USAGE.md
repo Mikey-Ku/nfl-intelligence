@@ -140,7 +140,8 @@ All through `uv run nfl <command>`; `--help` on any of them lists the flags.
 | | `game-table CSVS... --out` | one table for a game: a row per player per play |
 | Check | `plays-check LOGS...` | mark play logs against the play-by-play and the official charting |
 | | `roles-check --weeks 1-3` | mark role assignment against real Big Data Bowl snaps |
-| | `eval PRED TRUTH` | score a tracking CSV against hand-labelled truth |
+| | `truth VIDEO CSV --shot N` | click where each player stands, every half second: hand-labelled truth for a play |
+| | `eval PRED TRUTH` | score a tracking CSV against that truth: yards error, recall, ID switches, MOTA |
 | Train | `prelabel CLIPS...` / `train` | keyframes with detector boxes to correct, then a two-stage YOLO fine-tune |
 | | `value-train` / `value-baseline` | the pass value models and their typical-play curves |
 | | `coverage-train` | man/zone and coverage shell from defender movement |
@@ -191,6 +192,24 @@ to move.
     calibration.
 - **The code**: `uv run pytest` runs 158 tests on synthetic frames and tracks; no footage
   is needed or used.
+
+### Hand-labelling a play
+
+The number that matters most, how far each tracked player is from where he really stood,
+needs truth made by hand. `nfl truth` makes it:
+
+```bash
+uv run nfl truth data/clips/live-02.mp4 outputs/live-02.csv --shot 5     # label one play, a frame every 0.5 s
+uv run nfl eval outputs/live-02.csv data/truth/live-02.shot5.csv          # score the run against it
+```
+
+A window shows each sampled frame. Click the feet of every player on the field (both
+teams, not officials), `n` for the next frame; `u` undoes a click, `b` shows the run's
+boxes for reference (off by default so they don't lead the eye), `i` renumbers the last
+click, `q` saves. Each click becomes yards through the run's own field mapping for that
+frame, so the score measures detection and tracking; the mapping's own accuracy is measured
+separately against the paint. Numbers carry from frame to frame by nearness, so identity
+swaps can be counted. A play of 15 seconds is about 30 frames and 20 minutes of clicking.
 
 [STATUS.md](STATUS.md) has the current state of every capability with its measured number.
 

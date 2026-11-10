@@ -99,7 +99,8 @@ those rows, so anything built on the Big Data Bowl layout can read it.
 | `gametable.py` | `nfl game-table`: one table for a game from runs' CSVs and play logs, a row per player per play (who, how known, snap position and depth, top speed, distance run, moments as the best throw) and per-player totals. |
 | `roles_check.py` | `nfl roles-check`: marks role assignment against 2,572 real snaps, with and without the charted hints. |
 | `plays_check.py` | `nfl plays-check`: marks a play log against the official charting (alignment, backs, box, rushers). |
-| `evaluate.py` | `nfl eval`: position error, recall, identity switches and MOTA against a hand-labelled CSV. No truth file exists yet. |
+| `truth.py` | `nfl truth`: click where each player stands on frames of a run, half a second apart; clicks become yards through the run's own mapping, numbers carry by nearness; writes truth in the tracking schema. |
+| `evaluate.py` | `nfl eval`: position error, recall, identity switches and MOTA against that truth. |
 | `train.py` | `nfl prelabel` and `nfl train`: keyframes with detector boxes to correct, a dataset YAML, a two-stage YOLO fine-tune. |
 | `demo.py` | `nfl value-demo`: replays a Big Data Bowl play with the panel, on the league's own tracking. Where the value model was first watched. |
 | `cli.py` | The `nfl` command. Every command is a `cmd_*` function; `_build_live` is where the tracker and the analysis are put together; `_compose` draws the film, top-down and panel side by side for test images and the demo video. |
@@ -109,7 +110,7 @@ those rows, so anything built on the Big Data Bowl layout can read it.
 | Path | What it is |
 |---|---|
 | `scripts/make_showcase.py` | Builds the two showcase videos from chosen plays with captions. |
-| `tests/` | 158 tests, synthetic data only, no footage. `formations.py` is the shared synthetic play (a shotgun formation and a film of it); `conftest.py` runs Qt offscreen. Each `test_*.py` matches a module or a stage. |
+| `tests/` | 164 tests, synthetic data only, no footage. `formations.py` is the shared synthetic play (a shotgun formation and a film of it); `conftest.py` runs Qt offscreen. Each `test_*.py` matches a module or a stage. |
 | `README.md` | The front page: what it does, what it looks like, quick start. |
 | `docs/USAGE.md` | Every command and flag, output files, training, how to know it is working. |
 | `docs/STATUS.md` | Where each capability stands, with its measured number, what is next, known limits. |

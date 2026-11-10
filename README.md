@@ -7,7 +7,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">
   <img src="https://img.shields.io/badge/runs%20on-Apple%20silicon-000000?logo=apple&logoColor=white" alt="Apple silicon">
-  <img src="https://img.shields.io/badge/tests-158%20passing-2ea44f" alt="158 tests">
+  <img src="https://img.shields.io/badge/tests-164%20passing-2ea44f" alt="164 tests">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
 </p>
 
