@@ -80,12 +80,9 @@ Panthers at Browns:
 
 ## How it works
 
-```
-screen / clip ─► YOLO ─► BoT-SORT ─► jersey colours ─► field mapping ─► yards ─► snap ─► roles ─► value ─► panel
-      │                                                                                        ▲
-      ├─► OCR: play header ─► play-by-play row ─► real yard line, down & distance, result ─────┘
-      └─► OCR: on-field roster ─► jersey-number reader + player looks ─► names on the players
-```
+<p align="center">
+  <img src="docs/media/pipeline.svg" width="1000" alt="The pipeline: from the film, four lanes (see the players, map the field, read the play, name the players) feed the play's snap, roles, names, pass value and coverage read, which go out to the overlay and panel, the top-down view, the CSV and play log, and the game table">
+</p>
 
 1. A pretrained YOLO detector finds the players and BoT-SORT keeps an identity on each one
    through the camera's pans. Jersey colour splits the two teams.
