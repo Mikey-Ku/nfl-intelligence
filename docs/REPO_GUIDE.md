@@ -10,9 +10,9 @@ code. [SHOWCASE.md](SHOWCASE.md) says what the project achieves; this says how i
                                         │                                 │
                    per frame:   detect ─ track ─ teams ─ fieldmask ─ registration ─ camera
                                                                           │
-                   per play:    playinfo ─ personnel ─ anchor ─ fieldnumbers ─ fieldtrack ─ roles ─ value ─ coverage ─ decision
+                   per play:    playinfo ─ personnel ─ anchor ─ fieldnumbers ─ fieldtrack ─ roles ─ jersey ─ looks ─ value ─ coverage ─ decision
                                                                           │
-                   output:      schema (CSV) ─ stats ─ panel ─ topdown ─ draw ─ replay
+                   output:      schema (CSV) ─ stats ─ panel ─ topdown ─ draw ─ replay ─ gametable
 ```
 
 Two objects do the work. `PlayTracker` (pipeline.py) takes one frame and returns a
@@ -69,10 +69,12 @@ those rows, so anything built on the Big Data Bowl layout can read it.
 | `anchor.py` | Puts the play on the real field: the line of scrimmage from where the two teams face each other, the direction from the painted numbers, the end zone, the huddle or the formation, and the yard line from the play-by-play when it is known. `Anchor.to_absolute` converts the mapping's yards to the field's. |
 | `fieldtrack.py` | Tracking in yards. `FieldTracker` matches each frame's detections to known players with a Hungarian assignment; a player hidden behind another rides with him until they part. `SnapDetector` calls the snap when a still formation starts moving, then walks back to the moment it began. |
 | `roles.py` | Who is who at the snap: side of the ball first, jersey second, then the quarterback by where he stands behind the ball, linemen by the box, rushers by the line. Each side is held to eleven, so officials fall out. `update_roles` corrects roles from what players do after the snap. `describe_look` writes the formation in words. |
+| `jersey.py` | Who a track is, read off his shirt. `torso_crop`, `NumberNet` (a pretrained ResNet-18 with a tens head and a units head), `NumberVotes` adding up the frames the reader is sure of, `assign` giving each roster number to at most one track on clear evidence, and `ShotNumbers`, the piece the analyzer calls. The roster from the screen makes it a 22-way choice. |
+| `looks.py` | Knowing a named player again by his look. `LookEmbedder` (ResNet-18 body features in three parts, fine-tuned by `looks_train.py`), `LookBook` (a running mean look per team and number for the game, saved and loaded), `ShotLooks` (each track's recent looks), and `recognise_many`, a frame-by-frame vote that names a man only when he is clearly ahead of the runner-up. |
 | `value.py` | The play value. Seventeen position-only features per receiver; a catch model and a yards model (gradient boosting, trained in value_train.py); the play value is the best receiver's expected yards; `typical()` is the baseline by time since the snap and stretch of field. `what_changed` writes the one-line reason for a swing. |
 | `coverage.py` | Coverage recognition: man or zone, and which shell, from how the defenders stand and move after the snap. Labels come from nflverse participation data. |
 | `decision.py` | Grades the throw, experimentally. The play-by-play says who was thrown to and how deep; that finds the target; a flight time fitted to 3,351 real throws works back to the moment of the throw; every receiver is scored at that moment. A grade is `firm` only if the target's rank holds half a second either side. |
-| `analysis.py` | The conductor. `PlayAnalyzer.update` runs the per-play steps in order, only speaks when sure (no mapping, no anchor, no snap: no value), replays the sideline read on the end-zone view, and keeps a play log. `AnalysisView` is the face the panel talks to. `AnalyzedTracker` wraps `PlayTracker` and back-fills every frame of a shot into the final coordinates and roles when the shot ends. |
+| `analysis.py` | The conductor. `PlayAnalyzer.update` runs the per-play steps in order, only speaks when sure (no mapping, no anchor, no snap: no value), reads numbers and looks every frame and names players from them every 15 mapped frames (a number beats a look beats the formation's guess), replays the sideline read on the end-zone view, and keeps a play log. `AnalysisView` is the face the panel talks to. `AnalyzedTracker` wraps `PlayTracker` and back-fills every frame of a shot into the final coordinates and roles when the shot ends. |
 
 ### Showing it
 
@@ -92,6 +94,9 @@ those rows, so anything built on the Big Data Bowl layout can read it.
 |---|---|
 | `bdb.py` | Loads Big Data Bowl 2026 tracking one play at a time, flipped so the offense always moves +x, joined with outcomes. |
 | `value_train.py` | `nfl value-train`: fits the catch and yards models on weeks 1-14, reports on 15-18, and computes the typical-play curves (`nfl value-baseline`). |
+| `jersey_train.py` | Trains the number reader on torso crops in `data/jersey/` (labels.csv + crops/), one number per track. Each crop may be its track's number or "nothing to read", each track must show its number sometimes, and half of every batch is made-up torsos so the digits are learned as digits. |
+| `looks_train.py` | Fine-tunes the look embedding as a cosine classifier over the (team, number) identities a run named by number; the labels come free from the run's CSV and play log. |
+| `gametable.py` | `nfl game-table`: one table for a game from runs' CSVs and play logs, a row per player per play (who, how known, snap position and depth, top speed, distance run, moments as the best throw) and per-player totals. |
 | `roles_check.py` | `nfl roles-check`: marks role assignment against 2,572 real snaps, with and without the charted hints. |
 | `plays_check.py` | `nfl plays-check`: marks a play log against the official charting (alignment, backs, box, rushers). |
 | `evaluate.py` | `nfl eval`: position error, recall, identity switches and MOTA against a hand-labelled CSV. No truth file exists yet. |
@@ -104,7 +109,7 @@ those rows, so anything built on the Big Data Bowl layout can read it.
 | Path | What it is |
 |---|---|
 | `scripts/make_showcase.py` | Builds the two showcase videos from chosen plays with captions. |
-| `tests/` | 133 tests, synthetic data only, no footage. `formations.py` is the shared synthetic play (a shotgun formation and a film of it); `conftest.py` runs Qt offscreen. Each `test_*.py` matches a module or a stage. |
+| `tests/` | 158 tests, synthetic data only, no footage. `formations.py` is the shared synthetic play (a shotgun formation and a film of it); `conftest.py` runs Qt offscreen. Each `test_*.py` matches a module or a stage. |
 | `docs/SHOWCASE.md` | What it achieves, with every number's source. |
 | `docs/PRIOR_ART.md` | What exists elsewhere and why the detector is the bottleneck. |
 | `BRIEF.md`, `README.md`, `CLAUDE.md` | Scope, how to run it, rules for working in the repo. |
@@ -121,7 +126,8 @@ those rows, so anything built on the Big Data Bowl layout can read it.
 5. At the snap, roles are named from where everyone stood a tenth of a second earlier.
 6. From then on every receiver is scored each frame, roles are corrected by what players
    do, lost players are re-found, the panel shows the value, and six seconds in the throw
-   is graded.
+   is graded. Jersey numbers are read all along; a number read clearly puts the roster name
+   on the player, and a player named once is known by his look on later plays.
 7. When the shot ends, every frame of it is back-filled into the final anchor and roles, the
    play goes into the log, and what was learned is kept for the end-zone view of the same play.
 
@@ -132,5 +138,6 @@ those rows, so anything built on the Big Data Bowl layout can read it.
 - The mapping's own yards (before anchoring) are relative to the first yard line seen.
   `FrameResult.anchored` says which a row is in.
 - Roles: `QB`, `REC`, `OL`, `DEF`, `DL`, `OFF` (officials and anyone who doesn't fit).
-- Labels: `QB`, `R1..R5` across the field from the offense's left, `D1..`, or a last name.
+- Labels: `QB`, `R1..R5` across the field from the offense's left, `D1..`, or a last name; `R?`/`D?`
+  when a number read took the formation's guessed name off a player.
 - Nothing in the analysis guesses. When it can't tell, the panel says what is missing.

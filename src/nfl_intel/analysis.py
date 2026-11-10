@@ -25,7 +25,9 @@ from .anchor import Anchor, anchor_play, find_end_zone, find_huddle
 from .field import FIELD_WIDTH
 from .fieldnumbers import flatten, goal_line, read_numbers
 from .fieldtrack import FieldTracker, SnapDetector
-from .personnel import name_players
+from .jersey import ShotNumbers
+from .looks import LookBook, ShotLooks
+from .personnel import BACKFIELD, BACKS, D_LINE, LINEBACKERS, LINEMEN, name_players
 from .playinfo import PlayRecord, match_play, read_screen
 from .roles import assign_roles, describe_look, lined_up, update_roles
 from .schema import FrameResult, TrackedPlayer
@@ -35,6 +37,11 @@ from .value import PassValueModel, ReceiverScore, play_value, receiver_features,
 LIVE_FOR = 4.5                # seconds after the snap that "best throw available" still means something
 FORMATION_AT = 0.1            # roles are read from where players stood this long before the snap
 LOOK_EVERY = 8                # mapped frames between pre-snap reads of the formation
+NUMBERS_EVERY = 15            # mapped frames between looks at who the jersey numbers say is who
+OFFENSE_ROLES = ("QB", "REC", "OL")
+DEFENSE_ROLES = ("DEF", "DL")
+ROLE_POSITIONS = {"QB": {"QB"}, "REC": BACKS | {"WR", "TE"}, "OL": LINEMEN | {""},      # which roster positions a role can be
+                  "DL": D_LINE | {"OLB"}, "DEF": BACKFIELD | LINEBACKERS}
 
 
 @dataclass
@@ -188,8 +195,12 @@ class AnalysisView:
 
 class PlayAnalyzer(AnalysisView):
     def __init__(self, value_model: PassValueModel | None = None, coverage_model=None, read_plays: bool = True,
-                 record: PlayRecord | None = None, score_every: int = 1, use_hints: bool = True):
+                 record: PlayRecord | None = None, score_every: int = 1, use_hints: bool = True, number_reader=None,
+                 look_embedder=None):
         super().__init__()
+        self.number_reader = number_reader  # jersey.NumberReader: puts roster names on players by their numbers
+        self.look_embedder = look_embedder  # looks.LookEmbedder: knows a named player again by his look
+        self.book = LookBook()              # what each player has looked like, over the whole game
         self.use_hints = use_hints          # False: roles from the formation alone, to mark them against the charting
         self.value_model = value_model
         self.coverage_model = coverage_model
@@ -209,6 +220,7 @@ class PlayAnalyzer(AnalysisView):
     def _remember(self) -> None:
         """Keep what this shot worked out, for the other camera angle of the same play."""
         rec = getattr(self, "record", None)
+        self._learn_looks(rec)
         if rec is None or not rec.header.complete or getattr(self, "snap_t", None) is None or self._shot_t0 is None:
             return
         if not rec.from_scrimmage:
@@ -218,6 +230,19 @@ class PlayAnalyzer(AnalysisView):
         self.plays.append(self.summary())
         for key in list(self.memory)[:-8]:
             del self.memory[key]
+
+    def _learn_looks(self, rec) -> None:
+        """At the end of a shot, every player whose number was read leaves his look in the book."""
+        looks = getattr(self, "_looks", None)
+        if looks is None or rec is None or not rec.header.complete:
+            return
+        for sid, listed in getattr(self, "by_number", {}).items():
+            look = looks.look(sid)
+            if look is not None:
+                self.book.add(self._team_of(sid, rec), listed.number, look)
+
+    def _team_of(self, sid: int, rec) -> str:
+        return rec.header.offense if self.roles.get(sid) in OFFENSE_ROLES else rec.defense
 
     def summary(self) -> dict:
         """The play as worked out from this shot, in plain values: for the play log."""
@@ -240,7 +265,9 @@ class PlayAnalyzer(AnalysisView):
         roles = list(self.roles.values())
         out["found"] = {r: roles.count(r) for r in ("QB", "REC", "OL", "DL", "DEF") if roles.count(r)}
         out["hints_used"] = self.use_hints
-        out["names"] = sorted(v for v in self.labels.values() if v != "QB" and not (v[0] in "RD" and v[1:].isdigit()))
+        out["names"] = sorted(v for v in self.labels.values() if v != "QB" and not (v[0] in "RD" and (v[1:].isdigit() or v[1:] == "?")))
+        out["numbers"] = {p.last_name: p.number for p in self.by_number.values()}
+        out["looks"] = {p.last_name: p.number for p in self.by_look.values()}
         if self.history:
             to_goal = None if a is None else 110.0 - a.los_abs
             curve = []
@@ -277,6 +304,10 @@ class PlayAnalyzer(AnalysisView):
         self._number_tries = 0
         self.roles: dict[int, str] = {}
         self.labels: dict[int, str] = {}
+        self._numbers = ShotNumbers(self.number_reader) if self.number_reader is not None else None
+        self._looks = ShotLooks(self.look_embedder) if self.look_embedder is not None else None
+        self.by_number: dict[int, object] = {}       # slot id -> personnel.Listed, from the jersey number
+        self.by_look: dict[int, object] = {}         # slot id -> personnel.Listed, from his look on earlier plays
         self.history = []
         self.at_snap: dict[int, np.ndarray] = {}
         self.snap_t: float | None = None
@@ -393,8 +424,62 @@ class PlayAnalyzer(AnalysisView):
             if r == "QB":
                 self.labels[sid] = "QB"
         self._name_receivers()
+        self._apply_numbers()
         for s in self.tracker.slots:
             s.role, s.label = self.roles.get(s.id), self.labels.get(s.id)
+
+    def _name_by_number(self) -> None:
+        """Roster names for the players whose jersey number has been read clearly this shot.
+        A number read off the shirt beats a name the formation guessed."""
+        sides = {sid: "offense" if r in OFFENSE_ROLES else "defense"
+                 for sid, r in self.roles.items() if r in OFFENSE_ROLES + DEFENSE_ROLES}
+        self.by_number = self._numbers.names(sides, self.record.on_field)
+        self._name_by_look(sides)
+        self._apply_numbers()
+
+    def _name_by_look(self, sides: dict) -> None:
+        """Players without a number read, named from how they looked when their number was
+        read on an earlier play. Only among the men on the field, on his side, in his kind of
+        role, and only when one is clearly the best match."""
+        self.by_look = {}
+        if self._looks is None or not self.book.looks:
+            return
+        rec, on_field = self.record, self.record.on_field
+        taken = {(sides[sid], listed.number) for sid, listed in self.by_number.items() if sid in sides}
+        colour = {s.id: s.team for s in self.tracker.slots}
+        for sid, side in sides.items():
+            if sid in self.by_number:
+                continue
+            # a look is only compared with his side's roster, so his shirt had better agree with his role
+            if self.anchor is None:
+                return
+            expected = self.anchor.offense_team if side == "offense" else 1 - self.anchor.offense_team
+            if colour.get(sid) not in (None, expected):
+                continue
+            looks = self._looks.looks(sid)
+            if looks is None:
+                continue
+            roster = on_field.offense if side == "offense" else on_field.defense
+            fits = {p.number: p for p in roster if p.position in ROLE_POSITIONS[self.roles[sid]]}
+            number = self.book.recognise_many(self._team_of(sid, rec), fits, looks)
+            if number is not None and (side, number) not in taken:
+                self.by_look[sid] = fits[number]
+                taken.add((side, number))
+
+    def _apply_numbers(self) -> None:
+        """The names the numbers gave go on their players, and off anyone the formation had
+        guessed them for: one man, one name."""
+        named = {sid: listed.last_name for sid, listed in self.by_look.items() if sid in self.roles}
+        named.update({sid: listed.last_name for sid, listed in self.by_number.items() if sid in self.roles})
+        for sid, name in list(self.labels.items()):
+            if sid not in named and name in named.values():
+                role = self.roles.get(sid)
+                self.labels[sid] = "R?" if role == "REC" else "D?" if role == "DEF" else "QB" if role == "QB" else ""
+                if not self.labels[sid]:
+                    del self.labels[sid]
+        self.labels.update(named)
+        for s in self.tracker.slots:
+            s.label = self.labels.get(s.id)
 
     def _name_receivers(self) -> None:
         """Put names on the receivers the formation identifies beyond doubt."""
@@ -440,6 +525,13 @@ class PlayAnalyzer(AnalysisView):
                 self.roles[s.id] = self.roles.pop(best)
                 if best in self.labels:
                     self.labels[s.id] = self.labels.pop(best)
+                for named in (self.by_number, self.by_look):
+                    if best in named:
+                        named[s.id] = named.pop(best)
+                if self._numbers is not None and best in self._numbers.votes.score:
+                    self._numbers.votes.score[s.id] = self._numbers.votes.score.pop(best)
+                if self._looks is not None:
+                    self._looks.move(best, s.id)
                 if best in self.at_snap:
                     self.at_snap[s.id] = self.at_snap[best]
                 self._known.pop(best, None)
@@ -478,6 +570,7 @@ class PlayAnalyzer(AnalysisView):
                         while f"{prefix}{n}" in taken:
                             n += 1
                         self.labels[sid] = f"{prefix}{n}"
+                self._apply_numbers()
                 for s in self.tracker.slots:
                     s.role, s.label = self.roles.get(s.id), self.labels.get(s.id)
 
@@ -589,6 +682,10 @@ class PlayAnalyzer(AnalysisView):
         xy_rel = np.array([p.field_yd for p in both])
         slots = self.tracker.update(result.t, xy_rel, [p.team for p in both], [p.track_id if p.track_id >= 0 else None for p in both])
         loose_slots, slots = slots[len(mapped):], slots[: len(mapped)]
+        if self._numbers is not None:
+            self._numbers.update(frame, [p.box for p in mapped], [s.id for s in slots])
+        if self._looks is not None:
+            self._looks.update(frame, [p.box for p in mapped], [s.id for s in slots])
 
         if self.snap_t is None:
             self._recent.append((result.t, {s.id: s.xy.copy() for s in self.tracker.players}))
@@ -609,6 +706,9 @@ class PlayAnalyzer(AnalysisView):
                     if self.snap.update(result.t, players) is not None:
                         self.snap_t = self.snap.snap_t
                         self._name_roles()
+        if self._numbers is not None and self.roles and self.record is not None and self.record.on_field is not None \
+                and self._mapped_frames % NUMBERS_EVERY == 0:
+            self._name_by_number()
         out.anchor, out.snap_t, out.look = self.anchor, self.snap_t, self.look
         out.slot_ids = [s.id for s in slots]
 

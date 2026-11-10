@@ -12,7 +12,8 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
 - At run time the only input is video (screen capture of the NFL Pro player, or clip files).
   The value model behind the plus/minus is trained on public NFL Big Data Bowl tracking data
   (decided 2026-09-27); that data lives in `data/bdb/`, outcomes in `data/nflverse/`, trained
-  models in `models/`. None of it is ever committed.
+  models in `models/`. None of it is ever committed. The jersey-number reader and the look embedding
+  (`models/jersey.pt`, `models/looks.pt`) are trained on crops of our own film in `data/jersey/`; same rule.
 - Commit and push at pipeline stage boundaries or when asked; the repo is private
   (`Mikey-Ku/nfl-intelligence`). Never push footage, frames or weights.
 
@@ -35,11 +36,16 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
 - `src/nfl_intel/fieldtrack.py` — tracking in yards (Hungarian assignment; a player hidden behind another rides with him) and snap detection
 - `src/nfl_intel/roles.py` — QB / REC / OL / DEF / DL from the formation (+ charted shotgun/hash hints), corrected by what players do after the snap; the look in words
 - `src/nfl_intel/roles_check.py` — marks role assignment against Big Data Bowl snaps (`nfl roles-check`)
+- `src/nfl_intel/jersey.py` — jersey numbers: torso crop, the digit-reading network, votes over a shot, roster names (`ShotNumbers`)
+- `src/nfl_intel/jersey_train.py` — trains the number reader on torso crops from our film with weak, per-track labels and synthetic torsos
+- `src/nfl_intel/looks.py` — player looks: a player named by number once is known again on later plays by his appearance (`LookBook`, `ShotLooks`)
+- `src/nfl_intel/looks_train.py` — fine-tunes the look embedding on a run's players named by number
 - `src/nfl_intel/nflverse.py` — fetches the season's public play-by-play / charting (`nfl data`)
 - `src/nfl_intel/imaging.py` — `shrink`: fast resize for 4K frames with the geometry of cv2.resize
 - `src/nfl_intel/analysis.py` — `PlayAnalyzer` (play → anchor → snap → roles → value; replays the read on the unmapped end-zone view; play log) and `AnalyzedTracker`, which wraps `PlayTracker`
 - `src/nfl_intel/decision.py` — grades the throw: target from the play-by-play, throw moment worked back, options ranked (experimental)
 - `src/nfl_intel/plays_check.py` — marks play logs against the official charting (`nfl plays-check`)
+- `src/nfl_intel/gametable.py` — one table for a game: a row per player per play, and per-player totals (`nfl game-table`)
 - `src/nfl_intel/topdown.py` — top-down view of an anchored play, `TopDownWriter` for `nfl run --topdown`
 - `src/nfl_intel/stats.py` — `LiveStats`: play segmentation, team counts, tracking health, value/plus-minus hooks
 - `src/nfl_intel/panel.py` — renders the stats side panel (QPainter), shared by the window, test shots and tests
@@ -53,7 +59,7 @@ learning project; see `BRIEF.md` for scope and `README.md` for how to run it.
 - `src/nfl_intel/calibrate.py` — click landmarks on a frame to build a homography
 - `src/nfl_intel/evaluate.py` — score a tracking CSV against hand-labeled truth (yards error, recall, ID switches, MOTA)
 - `src/nfl_intel/train.py` — keyframe pre-labeling, dataset YAML, two-stage YOLO fine-tune
-- `src/nfl_intel/cli.py` — `nfl` command: check, windows, overlay, capture, run, replay, eval, calibrate, prelabel, train, value-train, coverage-train, value-baseline, value-demo, data, roles-check, plays-check
+- `src/nfl_intel/cli.py` — `nfl` command: check, windows, overlay, capture, run, replay, eval, calibrate, prelabel, train, value-train, coverage-train, value-baseline, value-demo, data, roles-check, plays-check, game-table
 - `scripts/make_showcase.py` — builds the two showcase videos (sideline with film, top-down without)
 - `docs/REPO_GUIDE.md` — every file, what it does, how a play goes through; read it before the code
 - `docs/SHOWCASE.md` — what the project achieves, every number with its source

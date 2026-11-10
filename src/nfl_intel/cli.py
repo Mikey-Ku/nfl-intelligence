@@ -107,8 +107,20 @@ def _build_live(args, fps: float):
     value, coverage = load_models(args.value_model, args.coverage_model)
     if value is None:
         print("no pass value model found: the panel shows formations only (train one with `nfl value-train`)")
+    from .jersey import DEFAULT_MODEL as JERSEY_MODEL, NumberReader
+
+    from .looks import DEFAULT_MODEL as LOOKS_MODEL, LookEmbedder
+
+    reader = NumberReader(JERSEY_MODEL) if Path(JERSEY_MODEL).exists() else None
+    if reader is None:
+        print("no jersey-number model found: players keep their formation labels (train one with `python -m nfl_intel.jersey_train`)")
+    # looks only with a fine-tuned embedding: the pretrained one names the wrong teammate two times in five
+    looks = LookEmbedder(LOOKS_MODEL) if reader is not None and Path(LOOKS_MODEL).exists() else None
+    if reader is not None and looks is None:
+        print("no look model found: players are named by number only (train one with `python -m nfl_intel.looks_train`)")
     analyzer = PlayAnalyzer(value, coverage, score_every=2,       # the value moves slowly; every other frame is plenty
-                            read_plays=not getattr(args, "no_play_lookup", False), use_hints=not getattr(args, "no_hints", False))
+                            read_plays=not getattr(args, "no_play_lookup", False), use_hints=not getattr(args, "no_hints", False),
+                            number_reader=reader, look_embedder=looks)
     return AnalyzedTracker(tracker, analyzer), live_stats(analyzer, value)
 
 
@@ -567,6 +579,12 @@ def cmd_roles_check(args) -> None:
     check(list(range(int(lo), int(hi or lo) + 1)), noise=args.noise, root=args.data)
 
 
+def cmd_game_table(args) -> None:
+    from .gametable import main as game_table_main
+
+    game_table_main([*args.csvs, "--out", args.out])
+
+
 def cmd_plays_check(args) -> None:
     from .plays_check import report
 
@@ -716,6 +734,11 @@ def build_parser() -> argparse.ArgumentParser:
     rc.add_argument("--noise", type=float, default=0.4, help="position noise in yards, standing in for video")
     rc.add_argument("--data", default="data/bdb/2026-prediction")
     rc.set_defaults(func=cmd_roles_check)
+
+    gt = sub.add_parser("game-table", help="one table for a game: a row per player per play, from runs' CSVs and play logs")
+    gt.add_argument("csvs", nargs="+", help="tracking CSVs; each .plays.json sits beside its CSV")
+    gt.add_argument("--out", required=True, help=".parquet or .csv; player totals go beside it")
+    gt.set_defaults(func=cmd_game_table)
 
     pc = sub.add_parser("plays-check", help="mark play logs against the play-by-play and the official charting")
     pc.add_argument("logs", nargs="+", help="<clip>.plays.json files from `nfl run`")
