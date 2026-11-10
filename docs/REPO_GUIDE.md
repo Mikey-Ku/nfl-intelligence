@@ -116,7 +116,7 @@ those rows, so anything built on the Big Data Bowl layout can read it.
 | `docs/SHOWCASE.md` | What it achieves, with every number's source. |
 | `docs/PRIOR_ART.md` | What exists elsewhere and why the detector is the bottleneck. |
 | `docs/BRIEF.md` | The original scope. |
-| `docs/media/` | Top-down renders and panel images for the README. No film in them. |
+| `docs/media/` | Pictures for the README: top-down renders, panel images, and one eight-second GIF of film beside the tracking (the only footage in the repository, committed on purpose). |
 | `data/`, `models/`, `outputs/` | Film, public data, trained models and results. Never committed. |
 
 ## How a play goes through

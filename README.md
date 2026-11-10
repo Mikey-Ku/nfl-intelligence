@@ -1,7 +1,7 @@
 <h1 align="center">NFL Intelligence</h1>
 
 <p align="center">
-  <strong>Live player tracking, formations and a pass value, read straight off NFL game film.</strong>
+  <strong>Player tracking and a live pass value, read off NFL game film by a computer-vision pipeline.</strong>
 </p>
 
 <p align="center">
@@ -12,19 +12,19 @@
 </p>
 
 <p align="center">
-  <img src="docs/media/play.gif" width="880" alt="A play unfolding top-down with the live panel: names on the players, the best throw and its expected yards">
+  <img src="docs/media/film.gif" width="880" alt="The film with the fitted yard grid, boxes and names on the left; the same moment drawn top-down in yards on the right">
 </p>
 
-<p align="center"><sub>A pass play as the pipeline sees it: every player placed on the field in yards, named from his jersey, with the best throw and its expected yards updating live. No film in this picture, only what was read from it.</sub></p>
+<p align="center"><sub>Left, the film as the pipeline sees it: the fitted yard grid, a box on each player and his name. Right, the same moment drawn top-down in yards, with the best throw and its expected yards. Browns 2nd and 10, eight seconds from the snap.</sub></p>
 
 ---
 
-The NFL's tracking data comes from chips in shoulder pads and none of it is public. NFL
-Intelligence gets the same kind of picture from the film alone: point it at the All-22 player
-and it finds the 22 players, maps the painted field to real yards, reads the play off the
-screen, names the players from their jersey numbers, works out the formation and the snap,
-and scores every receiver, every frame, with models trained on the league's own tracking data.
-It runs live on a MacBook.
+The NFL tracks its players with chips in their shoulder pads and keeps the data to itself.
+This project gets the same kind of picture from the broadcast film. Pointed at the All-22
+player, it finds the players, maps the painted field to yards, reads the play off the screen,
+names the players from their jersey numbers, finds the snap and the formation, and scores
+every receiver on every frame with models trained on the league's own tracking data. It runs
+live on a MacBook.
 
 ## Highlights
 
@@ -41,9 +41,14 @@ It runs live on a MacBook.
   </tr>
 </table>
 
-Every number is measured; [docs/SHOWCASE.md](docs/SHOWCASE.md) says where each comes from.
+[docs/SHOWCASE.md](docs/SHOWCASE.md) gives the source of each number.
 
 ## What you see
+
+<p align="center">
+  <img src="docs/media/play.gif" width="880" alt="A play unfolding top-down with the live panel: names on the players, the best throw and its expected yards">
+</p>
+<p align="center"><sub>The same play with the panel. The play value climbs as receivers come open; the biggest swings are listed with the moment and the reason.</sub></p>
 
 <table>
   <tr>
@@ -51,19 +56,18 @@ Every number is measured; [docs/SHOWCASE.md](docs/SHOWCASE.md) says where each c
     <td><img src="docs/media/panel.jpg" alt="The stats panel mid-play"></td>
   </tr>
   <tr>
-    <td><sub><b>Before the snap.</b> The play is read off the screen and matched to the play-by-play, the field is anchored from the painted numbers, and the formation and personnel are already on the panel.</sub></td>
-    <td><sub><b>Mid-play.</b> Expected yards of the best throw, the plus/minus against a typical play from the same stretch of field, who is open, the nearest rusher, and tracking health.</sub></td>
+    <td><sub>Before the snap. The play has been read off the screen and matched to the play-by-play, the field anchored from the painted numbers, and the formation and personnel are on the panel.</sub></td>
+    <td><sub>Mid-play. Expected yards of the best throw, the plus/minus against a typical play from the same part of the field, who is open, the nearest rusher, and how the tracking is holding up.</sub></td>
   </tr>
 </table>
 
 <p align="center">
   <img src="docs/media/names.jpg" width="880" alt="Players named from their jersey numbers on the top-down view">
 </p>
-<p align="center"><sub><b>Who is who.</b> Names come from a jersey-number reader trained on the film itself, constrained to the 22 on the field. A player named once is known again on later plays by his look.</sub></p>
+<p align="center"><sub>Panthers 2nd and 15. The names come from a jersey-number reader trained on this film, choosing among the 22 players the on-screen roster says are out there. A player named once is recognised on later plays by his look.</sub></p>
 
-**The game table.** Every run also lands in one table, a row per player per play, so a
-question like "how deep did the safeties line up" or "who was the best option most often"
-is one filter away. From one half of Panthers at Browns:
+Each run also writes one table for the game, a row per player per play. From one half of
+Panthers at Browns:
 
 | team | name | # | role | plays | named by number / look | depth at snap (yd) | top speed (yd/s) | moments as best throw |
 |---|---|---|---|---|---|---|---|---|
@@ -83,25 +87,23 @@ screen / clip ─► YOLO ─► BoT-SORT ─► jersey colours ─► field map
       └─► OCR: on-field roster ─► jersey-number reader + player looks ─► names on the players
 ```
 
-1. **Find and follow the players.** A pretrained YOLO detector and BoT-SORT keep an identity
-   on each man through the camera's pans; jersey colour splits the teams.
-2. **Map the field from the paint.** The yard lines are found by their shared vanishing
-   point, checked against the hash marks, and a pan/tilt/zoom camera is fitted and followed
-   frame to frame. Every foot on screen becomes a point in yards.
-3. **Read the screen.** On-device text recognition reads the play header and the on-field
-   roster. The header finds the play in the public play-by-play; the big painted numbers,
-   whose arrows point at the nearer goal line, pin the yards to the real field.
-4. **Find the snap and the roles.** A still formation starting to move is the snap. Each
-   player gets a role from where he stands, corrected by what he does next.
-5. **Name the players.** A number reader trained on the film reads the torsos; a look memory
-   recognises a named player on later plays by his build, sleeves, socks and gloves.
-6. **Score every receiver, every frame.** Catch and yards models trained on Big Data Bowl
-   tracking give the best throw and its expected yards; the plus/minus compares it with a
-   typical play at the same moment from the same stretch of field.
+1. A pretrained YOLO detector finds the players and BoT-SORT keeps an identity on each one
+   through the camera's pans. Jersey colour splits the two teams.
+2. The yard lines are found by their shared vanishing point and checked against the hash
+   marks. A pan/tilt/zoom camera is fitted to them and followed frame to frame, so every
+   foot on screen has a position in yards.
+3. On-device text recognition reads the play header and the on-field roster. The header
+   finds the play in the public play-by-play. The big painted numbers, whose arrows point at
+   the nearer goal line, tie the yards to the real field.
+4. The snap is a still formation starting to move. Each player gets a role from where he
+   stands at that moment, corrected by what he does next.
+5. A number reader trained on this film reads the torsos. A look memory recognises a named
+   player on later plays by his build, sleeves, socks and gloves.
+6. Catch and yards models trained on Big Data Bowl tracking score every receiver on every
+   frame. The play value is the best throw available; the plus/minus compares it with a
+   typical play at the same moment from the same part of the field.
 
-Everything is a pretrained model fine-tuned on our own data, and every stage can be checked
-against public charting or real tracking. [docs/REPO_GUIDE.md](docs/REPO_GUIDE.md) walks
-through the code.
+[docs/REPO_GUIDE.md](docs/REPO_GUIDE.md) goes through the code file by file.
 
 ## Quick start
 
@@ -115,29 +117,30 @@ uv run nfl overlay --window "Chrome" --out outputs/live.csv   # live on a playin
 uv run nfl run data/clips/play.mp4 --topdown                  # or on a saved clip
 ```
 
-[docs/USAGE.md](docs/USAGE.md) has every command and flag, what each run writes, how to train
-the models, and how to tell a run is working.
+[docs/USAGE.md](docs/USAGE.md) has the commands and flags, what each run writes, how to
+train the models, and how to tell a run is working.
 
 ## Documentation
 
 | | |
 |---|---|
-| [docs/USAGE.md](docs/USAGE.md) | Running it: commands, flags, outputs, training, how to know it is working |
-| [docs/STATUS.md](docs/STATUS.md) | Where each capability stands, with its measured number |
-| [docs/SHOWCASE.md](docs/SHOWCASE.md) | What it achieves and where every number comes from |
-| [docs/REPO_GUIDE.md](docs/REPO_GUIDE.md) | Every file and how a play travels through them |
+| [docs/USAGE.md](docs/USAGE.md) | Running it: commands, flags, outputs, training, how to tell it is working |
+| [docs/STATUS.md](docs/STATUS.md) | Where each part stands, with its measured number |
+| [docs/SHOWCASE.md](docs/SHOWCASE.md) | What it does and where each number comes from |
+| [docs/REPO_GUIDE.md](docs/REPO_GUIDE.md) | Each file and how a play travels through them |
 | [docs/PRIOR_ART.md](docs/PRIOR_ART.md) | What exists elsewhere and what was learned from it |
 | [docs/BRIEF.md](docs/BRIEF.md) | The original scope |
 
 ## Built with
 
-[Ultralytics YOLO11](https://github.com/ultralytics/ultralytics) · BoT-SORT · PyTorch on
-Apple MPS · OpenCV · Apple Vision (on-device OCR) · PySide6 · Polars · scikit-learn ·
-[NFL Big Data Bowl 2026](https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction) tracking data ·
-[nflverse](https://github.com/nflverse) play-by-play and FTN charting
+[Ultralytics YOLO11](https://github.com/ultralytics/ultralytics), BoT-SORT, PyTorch on
+Apple MPS, OpenCV, Apple Vision for on-device OCR, PySide6, Polars, scikit-learn,
+[NFL Big Data Bowl 2026](https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction) tracking data,
+[nflverse](https://github.com/nflverse) play-by-play and FTN charting.
 
 ## Licence
 
-MIT for the code. Film, tracking data and anything derived from them are not in the
-repository and carry their own terms. The pictures above are renders of the pipeline's own
-output; no footage appears in them.
+MIT for the code. The film, the tracking data and the models made from them are outside the
+repository and carry their own terms. The eight seconds of film at the top are from NFL Pro
+and are shown here to demonstrate the software; the other pictures are drawn from the
+pipeline's own output.

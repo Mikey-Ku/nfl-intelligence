@@ -239,5 +239,6 @@ it on the game's first clip and it names players on the rest.
 
 **Footage and anything derived from it stays on this machine.** `data/`, `outputs/`,
 `models/`, `runs/` and every video and weights extension are gitignored. Frames, crops, clips
-and weights are never committed, including in tests or docs. The tests use synthetic frames;
-the pictures in the README are top-down renders and panel images with no film in them.
+and weights are never committed, including in tests or docs. The tests use synthetic frames.
+The one exception is `docs/media/film.gif`, eight seconds of film beside the tracking,
+committed on purpose for the README.
