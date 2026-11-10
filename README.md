@@ -1,267 +1,143 @@
-# NFL Intelligence
+<h1 align="center">NFL Intelligence</h1>
 
-Turns All-22 game film into top-down tracking data with a computer-vision pipeline:
-detect every player, keep a stable ID on each one from line-set to whistle, split the
-teams by jersey colour, and map feet from pixels to yards on the field. Personal learning
-project; see [BRIEF.md](BRIEF.md) for scope.
+<p align="center">
+  <strong>Live player tracking, formations and a pass value, read straight off NFL game film.</strong>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">
+  <img src="https://img.shields.io/badge/runs%20on-Apple%20silicon-000000?logo=apple&logoColor=white" alt="Apple silicon">
+  <img src="https://img.shields.io/badge/tests-158%20passing-2ea44f" alt="158 tests">
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
+</p>
+
+<p align="center">
+  <img src="docs/media/play.gif" width="880" alt="A play unfolding top-down with the live panel: names on the players, the best throw and its expected yards">
+</p>
+
+<p align="center"><sub>A pass play as the pipeline sees it: every player placed on the field in yards, named from his jersey, with the best throw and its expected yards updating live. No film in this picture, only what was read from it.</sub></p>
+
+---
+
+The NFL's tracking data comes from chips in shoulder pads and none of it is public. NFL
+Intelligence gets the same kind of picture from the film alone: point it at the All-22 player
+and it finds the 22 players, maps the painted field to real yards, reads the play off the
+screen, names the players from their jersey numbers, works out the formation and the snap,
+and scores every receiver, every frame, with models trained on the league's own tracking data.
+It runs live on a MacBook.
+
+## Highlights
+
+<table>
+  <tr>
+    <td align="center"><h3>17-18 fps</h3>4K capture with full analysis, Apple M5</td>
+    <td align="center"><h3>45 / 45</h3>plays identified from the screen and matched to the play-by-play</td>
+    <td align="center"><h3>36 / 40</h3>plays anchored to real yard lines by reading the painted numbers</td>
+  </tr>
+  <tr>
+    <td align="center"><h3>39 / 42</h3>quarterbacks picked out at the snap, checked against official charting</td>
+    <td align="center"><h3>36 / 36</h3>jersey numbers read right on held-out plays, checked by eye</td>
+    <td align="center"><h3>AUC 0.76</h3>catch model on held-out weeks, calibrated within 3 points</td>
+  </tr>
+</table>
+
+Every number is measured; [docs/SHOWCASE.md](docs/SHOWCASE.md) says where each comes from.
+
+## What you see
+
+<table>
+  <tr>
+    <td width="62%"><img src="docs/media/presnap.jpg" alt="The formation read before the snap"></td>
+    <td><img src="docs/media/panel.jpg" alt="The stats panel mid-play"></td>
+  </tr>
+  <tr>
+    <td><sub><b>Before the snap.</b> The play is read off the screen and matched to the play-by-play, the field is anchored from the painted numbers, and the formation and personnel are already on the panel.</sub></td>
+    <td><sub><b>Mid-play.</b> Expected yards of the best throw, the plus/minus against a typical play from the same stretch of field, who is open, the nearest rusher, and tracking health.</sub></td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/media/names.jpg" width="880" alt="Players named from their jersey numbers on the top-down view">
+</p>
+<p align="center"><sub><b>Who is who.</b> Names come from a jersey-number reader trained on the film itself, constrained to the 22 on the field. A player named once is known again on later plays by his look.</sub></p>
+
+**The game table.** Every run also lands in one table, a row per player per play, so a
+question like "how deep did the safeties line up" or "who was the best option most often"
+is one filter away. From one half of Panthers at Browns:
+
+| team | name | # | role | plays | named by number / look | depth at snap (yd) | top speed (yd/s) | moments as best throw |
+|---|---|---|---|---|---|---|---|---|
+| CAR | Tremble | 82 | REC | 6 | 2 / 0 | -1.7 | 8.0 | 72 |
+| CAR | Hubbard | 30 | REC | 8 | 1 / 0 | -5.4 | 8.4 | 14 |
+| CAR | Moehrig | 7 | DEF | 7 | 2 / 5 | 5.5 | 10.2 | |
+| CLE | Jeudy | 3 | REC | 4 | 2 / 2 | -1.7 | 8.7 | 26 |
+| CLE | Hickman | 33 | DEF | 4 | 4 / 0 | 11.9 | 9.8 | |
+| CLE | Verse | 8 | DL | 4 | 4 / 0 | 0.8 | 5.8 | |
+
+## How it works
 
 ```
-screen / clip ─► YOLO (pretrained) ─► BoT-SORT ─► jersey k-means ─► field mapping ─► CSV + overlay + replay
-                                                                        │
-      play header (OCR) ─► play-by-play row ─► real yard line ─► roles at the snap ─► pass value, live
+screen / clip ─► YOLO ─► BoT-SORT ─► jersey colours ─► field mapping ─► yards ─► snap ─► roles ─► value ─► panel
+      │                                                                                        ▲
+      ├─► OCR: play header ─► play-by-play row ─► real yard line, down & distance, result ─────┘
+      └─► OCR: on-field roster ─► jersey-number reader + player looks ─► names on the players
 ```
 
-## Results at a glance
+1. **Find and follow the players.** A pretrained YOLO detector and BoT-SORT keep an identity
+   on each man through the camera's pans; jersey colour splits the teams.
+2. **Map the field from the paint.** The yard lines are found by their shared vanishing
+   point, checked against the hash marks, and a pan/tilt/zoom camera is fitted and followed
+   frame to frame. Every foot on screen becomes a point in yards.
+3. **Read the screen.** On-device text recognition reads the play header and the on-field
+   roster. The header finds the play in the public play-by-play; the big painted numbers,
+   whose arrows point at the nearer goal line, pin the yards to the real field.
+4. **Find the snap and the roles.** A still formation starting to move is the snap. Each
+   player gets a role from where he stands, corrected by what he does next.
+5. **Name the players.** A number reader trained on the film reads the torsos; a look memory
+   recognises a named player on later plays by his build, sleeves, socks and gloves.
+6. **Score every receiver, every frame.** Catch and yards models trained on Big Data Bowl
+   tracking give the best throw and its expected yards; the plus/minus compares it with a
+   typical play at the same moment from the same stretch of field.
 
-Measured on two games of NFL Pro film (about 17 minutes, 45 runs and passes) and against
-FTN's official charting; the full account, with where each number comes from, is in
-[docs/SHOWCASE.md](docs/SHOWCASE.md).
+Everything is a pretrained model fine-tuned on our own data, and every stage can be checked
+against public charting or real tracking. [docs/REPO_GUIDE.md](docs/REPO_GUIDE.md) walks
+through the code.
 
-| | |
-|---|---|
-| Plays identified from the screen and matched to the play-by-play | every run and pass |
-| Field anchored to real yard lines by reading the painted numbers | 36 of 40 |
-| Quarterback picked out / passes given a live value | 39 of 42 / 22 of 24 |
-| Backs, box, rushers within one of the charting | 39 of 40, 36 of 42, 21 of 24 |
-| Catch model, held-out weeks | AUC 0.76, calibrated within 3 points |
-| Throughput, 4K capture on an Apple M5 | about 17 frames a second |
+## Quick start
 
-`scripts/make_showcase.py` builds the demo videos (`outputs/showcase/`): a sideline cut
-with the film, and a top-down cut with no film in it that can be published.
-
-## Setup
+macOS on Apple silicon, Python 3.12, [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync --all-groups
-uv run nfl check
+uv run nfl check                                              # weights, GPU, screen capture
+uv run nfl data --season 2026                                 # public play-by-play, once
+uv run nfl overlay --window "Chrome" --out outputs/live.csv   # live on a playing video
+uv run nfl run data/clips/play.mp4 --topdown                  # or on a saved clip
 ```
 
-`nfl check` loads the weights (downloaded on first run), times inference on the Apple GPU,
-and saves a test screen grab. If the grab is blank or window titles are missing, give your
-terminal app **Screen Recording** permission in System Settings → Privacy & Security, then
-restart it.
+[docs/USAGE.md](docs/USAGE.md) has every command and flag, what each run writes, how to train
+the models, and how to tell a run is working.
 
-## Live overlay on NFL Pro
+## Documentation
 
-Play a clip in the browser, then:
+| | |
+|---|---|
+| [docs/USAGE.md](docs/USAGE.md) | Running it: commands, flags, outputs, training, how to know it is working |
+| [docs/STATUS.md](docs/STATUS.md) | Where each capability stands, with its measured number |
+| [docs/SHOWCASE.md](docs/SHOWCASE.md) | What it achieves and where every number comes from |
+| [docs/REPO_GUIDE.md](docs/REPO_GUIDE.md) | Every file and how a play travels through them |
+| [docs/PRIOR_ART.md](docs/PRIOR_ART.md) | What exists elsewhere and what was learned from it |
+| [docs/BRIEF.md](docs/BRIEF.md) | The original scope |
 
-```bash
-uv run nfl windows            # find the player window
-uv run nfl overlay --window "Chrome" --out outputs/live.csv
-```
+## Built with
 
-A transparent, click-through window sits on top of the player and draws each tracked
-player's box, team colour and, from the snap, his name in the play (QB, R1, D3). A stats
-panel docks beside the video (left by default, `--panel-side right`, `--no-panel`): the play,
-the formation, the play value with its plus/minus, the best throw, the coverage read, and
-tracking health. The window is captured by ID, so the overlay never sees its own boxes and
-other windows can cover it. `--no-analysis` goes back to tracking only.
+[Ultralytics YOLO11](https://github.com/ultralytics/ultralytics) · BoT-SORT · PyTorch on
+Apple MPS · OpenCV · Apple Vision (on-device OCR) · PySide6 · Polars · scikit-learn ·
+[NFL Big Data Bowl 2026](https://www.kaggle.com/competitions/nfl-big-data-bowl-2026-prediction) tracking data ·
+[nflverse](https://github.com/nflverse) play-by-play and FTN charting
 
-`--shots outputs/shots` saves a test image (annotated field + panel) every few seconds.
-`--seconds 40` stops on its own; Ctrl-C also ends cleanly and writes the CSV.
+## Licence
 
-To iterate without NFL Pro open, save a raw clip once and re-run on it:
-
-```bash
-uv run nfl capture --window "NFL Pro" --seconds 20 --out data/clips/atl-gb-td.mp4
-uv run nfl run data/clips/atl-gb-td.mp4 --shots outputs/shots
-```
-
-## Clip files
-
-```bash
-uv run nfl run data/clips/*.mp4 --save-video          # one CSV per clip in outputs/
-uv run nfl run data/clips/*.mp4 --topdown             # + a top-down replay with the panel per play
-uv run nfl replay outputs/play01_sideline.csv          # top-down replay video
-uv run nfl eval outputs/play01_sideline.csv data/truth/play01.csv   # yards error, recall, ID switches
-```
-
-Useful flags on `overlay` and `run`: `--tracker bytetrack` (faster, fixed camera; the default
-BoT-SORT compensates for camera pans), `--tiles 2` (2×2 overlapping slices for tiny far-sideline
-players), `--weights yolo11m.pt` or your fine-tuned weights. The default is `yolo11s.pt`: on
-the test clip the nano model lost four players a frame to low confidence and the target
-receiver for most of the play, while the medium one found one more lineman at three times
-the cost. With analysis on, a 4K capture runs at about 18 frames a second on the M5.
-
-## The plus/minus (pass value)
-
-For every receiver at every moment, two models estimate what would happen if the ball were
-thrown to him now: the chance it's caught and the yards if it is. The play value is the best
-receiver's expected yards; the plus/minus compares it with a typical play at the same moment
-after the snap.
-
-```bash
-uv run nfl value-train                 # ~1 min: trains on 2023 weeks 1-14, tests on 15-18
-uv run nfl value-baseline              # only recompute the typical-play curves, by field position
-uv run nfl coverage-train              # man/zone and coverage shell from defender movement
-uv run nfl value-demo --week 16        # replays real plays top-down with the live panel
-```
-
-Public label files, all from nflverse releases on GitHub, go in `data/nflverse/`:
-`play_by_play_2023.parquet` (results), `pbp_participation_2023.parquet` (pressure, coverage,
-formation per play), `ftn_charting_2023.parquet` (blitzers, play action, catchable ball).
-Coverage recognition is right on man vs zone 70% of the time at the snap and 77% after two
-seconds (always guessing zone: 57%).
-
-Needs the Big Data Bowl 2026 data in `data/bdb/2026-prediction/` and nflverse play-by-play in
-`data/nflverse/play_by_play_2023.parquet`. On held-out plays the catch model scores AUC 0.76
-and is calibrated within 3 points; throws to the model's top option gained 12.0 yards, second
-option 9.4, third or lower 5.8. The data has no linemen, so pressure isn't modelled, and it
-runs on sensor tracking until video positions are in yards.
-
-## From film to football
-
-On a sideline-angle shot the pipeline works the play out on its own, in this order:
-
-1. **Which play.** NFL Pro's header ("Q4 08:21 / 2ND & 7 / GB ON ATL 15") is read off the
-   captured window with Apple's on-device text recognition and matched to its row in the
-   nflverse play-by-play (`data/nflverse/play_by_play_<season>.parquet`). That row gives the
-   yard line, who has the ball, shotgun or not, and afterwards what happened.
-2. **Where on the field.** The field is laid flat through the mapping and the big painted
-   yard numbers are read off it; each number's arrow points at the nearer goal line. With
-   the yard line from step 1 that pins the mapping to the real field: offense moving +x,
-   goal line at x = 110. (No numbers in view: the painted end zone does the same job.)
-3. **Tracking in yards.** Players are followed on the field rather than in the picture, so a
-   player keeps his identity when the image tracker hands him a new number.
-4. **The snap and the roles.** The snap is where a still formation starts moving. Just before
-   it, each player gets a role from where he stands: side of the ball first, jersey second.
-5. **The value.** From the snap, every receiver is scored by the pass value model and the
-   panel shows the best throw, the plus/minus against a typical play from the same stretch
-   of field, and the coverage read.
-6. **Who is out there.** NFL Pro's "On Field Players" list is read too: the personnel
-   grouping ("11 personnel v nickel", "jumbo, 7 linemen") and, where the formation leaves no
-   doubt, names on the receivers (a lone back, a lone tight end, the man the ball went to).
-
-The line of scrimmage and the line to gain are drawn on the video the way television does.
-The panel also shows the nearest rusher to the quarterback: the value model can't see the
-rush (its training data has no linemen), so it sits beside the value rather than inside it.
-
-**The end-zone angle** isn't mapped, but NFL Pro shows each play from the sideline first and
-the two views start at the same moment, so the sideline read is replayed in step with it:
-the panel keeps its clock, formation and value, marked "read from the sideline view".
-
-**Tight coverage** puts a receiver and his defender in one box. The one the detector loses
-is carried along with the one it still sees until they part, instead of vanishing and
-leaving the receiver looking wide open.
-
-**Grading the throw** (`decision.py`) is experimental. The play-by-play says who was thrown
-to, how deep and to which side; that picks out the target on about half the passes. The
-moment of the throw is worked back from when he was at that depth and how long the ball
-flies (fitted to 3,351 real throws: 0.09 s + distance / 20.8 yd/s). Checked against real
-throws that lands within 0.3 s only 41% of the time and within 0.6 s 69%, so a grade is
-marked firm only when the target's rank among the options is the same half a second either
-side. Without tracking the ball it won't get better than that.
-
-`nfl plays-check outputs/*.plays.json` marks play logs against the official charting. On
-42 runs and passes from CAR at CLE (2026 week 3): quarterback named on 39, 22 of 24 passes
-given a value, backs within one of the charting on 39 of 40 (exact 15), defenders in the box
-within one on 36 of 42 (exact 16), pass rushers within one on 21 of 24 (exact 6). Read from
-the formation alone (`--no-hints`), shotgun or under centre is right on 26 of 40. Each side is
-held to eleven men (the rest are officials), and the rush is counted a second and a half after
-the snap, as the charting counts it. The snap, checked by eye on four plays, was 0.0 to 0.2 s
-late before a 0.12 s correction.
-
-`nfl run` writes `<clip>.plays.json`: one entry per play with the situation, personnel,
-formation, what was found, the value curve against typical, the closest the rush got, and
-the result. `nfl overlay --out live.csv` writes `live.plays.json` the same way.
-
-**Without the page around the video** (full screen, or another source) there is no header
-to read. `--no-play-lookup` runs that way on purpose: the painted numbers give the yard
-lines, the huddle or the formation says who has the ball, and the value still runs. What is
-lost is everything the play-by-play knows: down and distance, personnel, names, the result.
-
-On the saved clip (Packers-Falcons, 2026 week 3) all three plays were matched and both
-sideline shots anchored from the end zone. On Love's touchdown to Golden the quarterback, all
-five eligible receivers and four rushers were named (the charting says four rushed), and the
-formation read "Shotgun, 3 x 1, 1 back", which is what was on the field. Golden was the
-model's best throw for the first second, then the tight end and the back took over as his
-defender closed; the charting calls the catch contested. The clip stops 2.2 seconds after
-the snap, before the ball is thrown.
-
-The snap is only looked for once the offense is at the line: the first version took the
-break of the huddle for the snap on the goal-line run.
-
-How good are the roles? `nfl roles-check` marks them against Big Data Bowl tracking, which
-has no linemen at all (a hard version of linemen lost in a pile), with 0.4 yd of noise added:
-
-| 2,572 pass plays, 2023 weeks 1-3 | formation alone | with the play's charting |
-|---|---|---|
-| quarterback picked out | 71% | 96% |
-| route runners named receivers | 92% | 98% |
-| coverage men named coverage | 94% | 95% |
-
-The charting (shotgun or under centre, which hash the ball is on) comes with the matched
-play. Without it, and with no linemen to show where the ball is, the quarterback is often
-confused with the back beside him; on film the linemen that are found close most of that gap.
-
-What it gets wrong today: linemen in a pile come out as a few boxes, so heavy formations
-read roughly (the goal-line run was charted with three in the backfield and seven in the
-box; we saw two and eight); officials are not told apart from players; the typical-play
-names for receivers on the same side can't be told apart without reading jersey numbers.
-Run plays get roles and a formation but no value:
-the model scores passes. Without the play-by-play file, or on the end-zone angle, the panel
-says what is missing instead of guessing.
-
-```bash
-uv run nfl data --season 2026          # fetch this week's play-by-play and charting (public, no account)
-uv run nfl roles-check --weeks 1-3     # the table above
-```
-
-## Fine-tuning the detector
-
-The pretrained COCO `person` class finds players but the detector is the bottleneck on film
-(see [docs/PRIOR_ART.md](docs/PRIOR_ART.md)). A few hundred corrected frames go a long way:
-
-```bash
-uv run nfl prelabel data/clips/*.mp4 --every 30       # keyframes + detector boxes as YOLO labels
-# correct the boxes in X-AnyLabeling (reads/writes YOLO txt), classes: player, referee
-uv run nfl train --epochs 40                          # two-stage fine-tune at 1280 on the M5
-uv run nfl overlay --window "Chrome" --weights runs/detect/nfl/weights/best.pt
-```
-
-## Field mapping (pixels to yards)
-
-Automatic, from the painted lines. `nfl run` and `nfl overlay` do it on their own:
-
-1. Find the paint (bright, colourless, thin), ignoring players, end-zone lettering and logos.
-2. The biggest family of lines meeting at one vanishing point is the yard lines; they are
-   numbered so equal steps in number are equal steps on the field.
-3. Rows of hash marks are found and checked: their dashes must sit on whole yards.
-4. A level pan/tilt/zoom camera is fitted to it all, then followed frame to frame.
-
-On the saved clip the sideline angle maps 70-100% of frames with the fitted lines on the paint
-(0.03-0.08 yd error against the lines used). The end-zone angle (camera looking down the
-field) is **not mapped yet**: through its long lens the scale across the field comes out
-wrong, so the pipeline declines to map it. The mapping's own yard numbers start from the
-first line seen; anchoring (above) turns them into real yard lines. A first lock takes about
-a second; following takes 25-50 ms a frame.
-
-## Manual calibration (fallback)
-
-```bash
-uv run nfl calibrate --video data/clips/play01_sideline.mp4 --frame 30 --out calibrations/sideline.json
-```
-
-Click a field landmark, then type its name in the terminal: `L40-H1` is the left 40 at
-the near hash, `50-S2` is midfield at the far sideline, `REZ-S1` is the back of the right
-end zone. Four points fit a homography; more points plus RANSAC make it sturdier. The fit
-prints its mean error in yards as you go.
-
-## Output
-
-One CSV row per player per frame: `frame, t, shot, track_id, team, conf, x1, y1, x2, y2,
-foot_x_px, foot_y_px, x_yd, y_yd, role, label, anchored`. With `anchored` = 1 the yards are
-on the real field in the Big Data Bowl convention (x 0–120 along the field with the offense
-moving +x, y 0–53.3 across it), so anything built on that data runs on ours. With 0 they are
-relative to the mapping's first yard line.
-
-## Reading the code
-
-[docs/REPO_GUIDE.md](docs/REPO_GUIDE.md) goes through every file and how a play travels
-through them.
-
-## Tests
-
-```bash
-uv run pytest
-```
+MIT for the code. Film, tracking data and anything derived from them are not in the
+repository and carry their own terms. The pictures above are renders of the pipeline's own
+output; no footage appears in them.

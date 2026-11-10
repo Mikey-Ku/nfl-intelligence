@@ -37,3 +37,7 @@ nfl-big-data-bowl-*/
 
 # Trained models (derived from licensed data)
 models/
+
+# Local working notes for Claude Code and its worktrees
+CLAUDE.md
+.claude/
