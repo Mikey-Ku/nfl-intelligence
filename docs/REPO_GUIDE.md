@@ -94,12 +94,14 @@ those rows, so anything built on the Big Data Bowl layout can read it.
 |---|---|
 | `bdb.py` | Loads Big Data Bowl 2026 tracking one play at a time, flipped so the offense always moves +x, joined with outcomes. |
 | `value_train.py` | `nfl value-train`: fits the catch and yards models on weeks 1-14, reports on 15-18, and computes the typical-play curves (`nfl value-baseline`). |
+| `jersey_mark.py` | Marks torso crops readable or nothing-to-read by hand, a page of one track's crops at a time (`marks.csv`); `jersey_train` trains marked crops as plain examples. The way to teach the reader dark jerseys. |
 | `jersey_train.py` | Trains the number reader on torso crops in `data/jersey/` (labels.csv + crops/), one number per track. Each crop may be its track's number or "nothing to read", each track must show its number sometimes, and half of every batch is made-up torsos so the digits are learned as digits. |
 | `looks_train.py` | Fine-tunes the look embedding as a cosine classifier over the (team, number) identities a run named by number; the labels come free from the run's CSV and play log. |
 | `gametable.py` | `nfl game-table`: one table for a game from runs' CSVs and play logs, a row per player per play (who, how known, snap position and depth, top speed, distance run, moments as the best throw) and per-player totals. |
 | `roles_check.py` | `nfl roles-check`: marks role assignment against 2,572 real snaps, with and without the charted hints. |
 | `plays_check.py` | `nfl plays-check`: marks a play log against the official charting (alignment, backs, box, rushers). |
-| `evaluate.py` | `nfl eval`: position error, recall, identity switches and MOTA against a hand-labelled CSV. No truth file exists yet. |
+| `truth.py` | `nfl truth`: click where each player stands on frames of a run, half a second apart; clicks become yards through the run's own mapping, numbers carry by nearness; writes truth in the tracking schema. |
+| `evaluate.py` | `nfl eval`: position error, recall, identity switches and MOTA against that truth. |
 | `train.py` | `nfl prelabel` and `nfl train`: keyframes with detector boxes to correct, a dataset YAML, a two-stage YOLO fine-tune. |
 | `demo.py` | `nfl value-demo`: replays a Big Data Bowl play with the panel, on the league's own tracking. Where the value model was first watched. |
 | `cli.py` | The `nfl` command. Every command is a `cmd_*` function; `_build_live` is where the tracker and the analysis are put together; `_compose` draws the film, top-down and panel side by side for test images and the demo video. |
@@ -109,7 +111,7 @@ those rows, so anything built on the Big Data Bowl layout can read it.
 | Path | What it is |
 |---|---|
 | `scripts/make_showcase.py` | Builds the two showcase videos from chosen plays with captions. |
-| `tests/` | 158 tests, synthetic data only, no footage. `formations.py` is the shared synthetic play (a shotgun formation and a film of it); `conftest.py` runs Qt offscreen. Each `test_*.py` matches a module or a stage. |
+| `tests/` | 168 tests, synthetic data only, no footage. `formations.py` is the shared synthetic play (a shotgun formation and a film of it); `conftest.py` runs Qt offscreen. Each `test_*.py` matches a module or a stage. |
 | `README.md` | The front page: what it does, what it looks like, quick start. |
 | `docs/USAGE.md` | Every command and flag, output files, training, how to know it is working. |
 | `docs/STATUS.md` | Where each capability stands, with its measured number, what is next, known limits. |

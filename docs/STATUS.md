@@ -41,15 +41,43 @@ The charting (shotgun or under centre, which hash the ball is on) comes with the
 play. Without it, and with no linemen to show where the ball is, the quarterback is often
 confused with the back beside him; on film the linemen that are found close most of that gap.
 
-## What is next
+## Where it stands, in one paragraph
 
-1. Crop-level "readable" labels for dark jerseys (a few hundred crops) so the number reader
-   learns them; today it names almost only light shirts.
-2. Fine-tuning the detector on corrected boxes, which most remaining tracking errors trace
-   back to (see [PRIOR_ART.md](PRIOR_ART.md)).
-3. Ground truth for the looks, so the 85% stops being an eye estimate.
-4. Roster fallback from nflverse weekly rosters when NFL Pro's on-field list is not on
-   screen.
+Measured on two games, 45 plays, 17 minutes of film. Reading the screen, pinning the field
+and reading the formation are solid. The detector is still the stock COCO model, which is
+where most tracking errors come from. The number that matters most, how far each tracked
+player is from where he really stood, has not been measured: the mapping's 0.03-0.08 yd
+residual is the grid against the paint, not a player against the truth, and no hand-labelled
+truth exists yet. So this is a working prototype with its central claim unverified.
+
+## The bar for a first release
+
+The brief's own success criteria, plus the detector:
+
+1. **Truth on 20 plays.** `nfl truth` labels a play in about 20 minutes; `nfl eval` scores
+   it. Target from the brief: about 1 yard mean error, at most 2 identity swaps a play.
+2. **Detector fine-tuned.** 275 frames are pre-labelled in `data/labels/` with the
+   correction notes in `data/LABELLING.txt`; none has been corrected yet. An afternoon of
+   fixes, then `nfl train`. Most of the remaining tracking errors trace to this step.
+3. **A third game**, not more of the same two: a night game, a team with dark home jerseys,
+   a different stadium. Captured with `nfl capture`, run with `nfl run`, marked with
+   `nfl plays-check` and the game table, looked at through `--shots`.
+
+With those three the README gets a "within X yd on 20 labelled plays" tile and the word
+"prototype" can go.
+
+## After that
+
+- Crop-level "readable" labels for dark jerseys (a few hundred crops) so the number reader
+  learns them; today it names almost only light shirts.
+- Ground truth for the looks, so the 85% stops being an eye estimate.
+- Roster fallback from nflverse weekly rosters when NFL Pro's on-field list is not on
+  screen.
+- The end-zone angle, if ever: the long lens defeats the camera model and the sideline
+  read already covers it.
+
+What it will not become: chip-grade tracking (10 Hz at a tenth of a yard) or a ball
+tracker. The throw grade stays rough for that reason.
 
 ## Known limits
 

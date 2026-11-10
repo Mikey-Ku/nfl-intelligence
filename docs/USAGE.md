@@ -140,7 +140,8 @@ All through `uv run nfl <command>`; `--help` on any of them lists the flags.
 | | `game-table CSVS... --out` | one table for a game: a row per player per play |
 | Check | `plays-check LOGS...` | mark play logs against the play-by-play and the official charting |
 | | `roles-check --weeks 1-3` | mark role assignment against real Big Data Bowl snaps |
-| | `eval PRED TRUTH` | score a tracking CSV against hand-labelled truth |
+| | `truth VIDEO CSV --shot N` | click where each player stands, every half second: hand-labelled truth for a play |
+| | `eval PRED TRUTH` | score a tracking CSV against that truth: yards error, recall, ID switches, MOTA |
 | Train | `prelabel CLIPS...` / `train` | keyframes with detector boxes to correct, then a two-stage YOLO fine-tune |
 | | `value-train` / `value-baseline` | the pass value models and their typical-play curves |
 | | `coverage-train` | man/zone and coverage shell from defender movement |
@@ -192,6 +193,24 @@ to move.
 - **The code**: `uv run pytest` runs 158 tests on synthetic frames and tracks; no footage
   is needed or used.
 
+### Hand-labelling a play
+
+The number that matters most, how far each tracked player is from where he really stood,
+needs truth made by hand. `nfl truth` makes it:
+
+```bash
+uv run nfl truth data/clips/live-02.mp4 outputs/live-02.csv --shot 5     # label one play, a frame every 0.5 s
+uv run nfl eval outputs/live-02.csv data/truth/live-02.shot5.csv          # score the run against it
+```
+
+A window shows each sampled frame. Click the feet of every player on the field (both
+teams, not officials), `n` for the next frame; `u` undoes a click, `b` shows the run's
+boxes for reference (off by default so they don't lead the eye), `i` renumbers the last
+click, `q` saves. Each click becomes yards through the run's own field mapping for that
+frame, so the score measures detection and tracking; the mapping's own accuracy is measured
+separately against the paint. Numbers carry from frame to frame by nearness, so identity
+swaps can be counted. A play of 15 seconds is about 30 frames and 20 minutes of clicking.
+
 [STATUS.md](STATUS.md) has the current state of every capability with its measured number.
 
 ## Output files
@@ -218,7 +237,7 @@ Every model starts pretrained and is fine-tuned; nothing is trained from scratch
 | Detector (YOLO) | corrected keyframes from our clips | `nfl prelabel data/clips/*.mp4 --every 30`, fix the boxes in X-AnyLabeling, `nfl train --epochs 40` | `runs/detect/nfl/weights/best.pt` |
 | Pass value (catch + yards) | Big Data Bowl 2026 tracking, nflverse outcomes; weeks 1-14 train, 15-18 test | `nfl value-train` (about a minute), `nfl value-baseline` | `models/pass_value.pkl` |
 | Coverage (man/zone, shell) | Big Data Bowl + nflverse participation | `nfl coverage-train` | `models/coverage.pkl` |
-| Jersey-number reader | torso crops from our film with per-track labels, plus synthetic numbers | `python -m nfl_intel.jersey_train data/jersey --out models/jersey.pt` | `models/jersey.pt` |
+| Jersey-number reader | torso crops from our film with per-track labels, plus synthetic numbers; crops marked readable or not by hand (`python -m nfl_intel.jersey_mark data/jersey --kind dark`, a page of one track's crops at a time, click green for readable and red for nothing to read) | `python -m nfl_intel.jersey_train data/jersey --out models/jersey.pt` | `models/jersey.pt` |
 | Look embedding | a run's own number-named players, as classes | `python -m nfl_intel.looks_train data/clips/live-04.mp4 outputs/live-04.csv` | `models/looks.pt` |
 
 The number reader and look embedding switch on when their files exist; without them `nfl

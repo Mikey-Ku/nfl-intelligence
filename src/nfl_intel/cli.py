@@ -591,6 +591,16 @@ def cmd_plays_check(args) -> None:
     report(args.logs)
 
 
+def cmd_truth(args) -> None:
+    from .truth import main as truth_main
+
+    argv = [args.video, args.csv, "--every", str(args.every), "--reach", str(args.reach), "--scale", str(args.scale)]
+    for name in ("shot", "start", "stop", "out"):
+        if getattr(args, name) is not None:
+            argv += [f"--{name}", str(getattr(args, name))]
+    truth_main(argv)
+
+
 def cmd_eval(args) -> None:
     from .evaluate import evaluate_files
 
@@ -743,6 +753,18 @@ def build_parser() -> argparse.ArgumentParser:
     pc = sub.add_parser("plays-check", help="mark play logs against the play-by-play and the official charting")
     pc.add_argument("logs", nargs="+", help="<clip>.plays.json files from `nfl run`")
     pc.set_defaults(func=cmd_plays_check)
+
+    tu = sub.add_parser("truth", help="click where each player stands on sampled frames of a run: hand-labelled truth for `nfl eval`")
+    tu.add_argument("video")
+    tu.add_argument("csv", help="the run's tracking CSV for this clip")
+    tu.add_argument("--shot", type=int, help="label this shot (play) only")
+    tu.add_argument("--start", type=float, help="seconds into the clip")
+    tu.add_argument("--stop", type=float)
+    tu.add_argument("--every", type=float, default=0.5, help="seconds between labelled frames")
+    tu.add_argument("--reach", type=float, default=3.0, help="yards within which a click keeps the previous frame's number")
+    tu.add_argument("--scale", type=float, default=0.5, help="display scale (4K frames at 0.5 fit a laptop screen)")
+    tu.add_argument("--out", help="default data/truth/<clip>.shot<N>.csv")
+    tu.set_defaults(func=cmd_truth)
 
     ev = sub.add_parser("eval", help="score a tracking CSV against a ground-truth CSV in the same schema")
     ev.add_argument("pred")
