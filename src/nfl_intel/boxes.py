@@ -70,6 +70,8 @@ def read_yolo(path: Path, w: int, h: int) -> list[Box]:
 def write_yolo(path: Path, boxes: list[Box], w: int, h: int) -> None:
     lines = []
     for b in (b.norm() for b in boxes):
+        if b.area() < 16:                                   # a click that never became a box
+            continue
         cx, cy = (b.x1 + b.x2) / 2 / w, (b.y1 + b.y2) / 2 / h
         bw, bh = (b.x2 - b.x1) / w, (b.y2 - b.y1) / h
         lines.append(f"{b.cls} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}")
@@ -187,85 +189,106 @@ def edit_interactive(data_dir: str | Path, scale: float = 0.5, start: int = 0) -
     frame, boxes, view = load(k)
     history: list[list[Box]] = []
     selected: int | None = None
-    grab: tuple | None = None                               # (index, corner-or-"move", last frame point)
-    while True:
-        h, w = frame.shape[:2]
-        title = (f"{k + 1}/{len(images)}  {images[k].name}  {len(boxes)} boxes ({sum(b.cls == 1 for b in boxes)} ref)  "
-                 f"drag=draw  click=select  d=delete  r=player/ref  u=undo  z=zoom  n/p=frames  g=go to  q=save")
-        cv2.imshow(WINDOW, _draw(frame, boxes, selected, view, title))
-        key = cv2.waitKey(20) & 0xFF
-        if mouse["down"] is not None and grab is None and mouse.get("drag") is not None:
-            fx, fy = view.to_frame(*mouse["down"])
-            reach = HANDLE / (view.scale * view.zoom)
-            if selected is not None and corner(boxes[selected], fx, fy, reach):
-                history.append([Box(**vars(b)) for b in boxes])
-                grab = (selected, corner(boxes[selected], fx, fy, reach), (fx, fy))
-            elif selected is not None and boxes[selected].contains(fx, fy):
-                history.append([Box(**vars(b)) for b in boxes])
-                grab = (selected, "move", (fx, fy))
-            else:
-                history.append([Box(**vars(b)) for b in boxes])
-                boxes.append(Box(0, fx, fy, fx, fy))
-                selected = len(boxes) - 1
-                grab = (selected, "br", (fx, fy))
-        if grab is not None and mouse.get("drag") is not None:
-            i, which, last = grab
-            fx, fy = view.to_frame(*mouse["drag"])
-            if which == "move":
-                b = boxes[i]
-                dx, dy = fx - last[0], fy - last[1]
-                boxes[i] = Box(b.cls, b.x1 + dx, b.y1 + dy, b.x2 + dx, b.y2 + dy)
-                grab = (i, which, (fx, fy))
-            else:
-                boxes[i] = resized(boxes[i], which, fx, fy)
-            mouse["drag"] = None
-        if "up" in mouse:
-            ux, uy = mouse.pop("up")
-            if grab is not None:
-                i = grab[0]
-                boxes[i] = boxes[i].norm()
-                if boxes[i].area() < 16:                        # a click, not a drag: nothing drawn
-                    boxes.pop(i)
-                    history.pop()
-                    selected = hit(boxes, *view.to_frame(ux, uy))
+    grab: tuple | None = None                               # (index, corner-or-"move", last frame point, new box?)
+
+    def finish_grab(ux: float, uy: float) -> None:
+        """The button came up (or a key ended the drag): keep the box, or drop a new one that was only a click."""
+        nonlocal grab, selected
+        if grab is None:
+            return
+        i, _, _, new = grab
+        grab = None
+        if i >= len(boxes):                                     # the box went away under the drag (undo, delete)
+            return
+        boxes[i] = boxes[i].norm()
+        if new and boxes[i].area() < 16:
+            boxes.pop(i)
+            history.pop()
+            selected = hit(boxes, *view.to_frame(ux, uy))
+        else:
+            changed.add(k)
+
+    try:
+        while True:
+            h, w = frame.shape[:2]
+            title = (f"{k + 1}/{len(images)}  {images[k].name}  {len(boxes)} boxes ({sum(b.cls == 1 for b in boxes)} ref)  "
+                     f"drag=draw  click=select  d=delete  r=player/ref  u=undo  z=zoom  n/p=frames  g=go to  q=save")
+            cv2.imshow(WINDOW, _draw(frame, boxes, selected, view, title))
+            key = cv2.waitKey(20) & 0xFF
+            if mouse["down"] is not None and grab is None and mouse.get("drag") is not None:
+                fx, fy = view.to_frame(*mouse["down"])
+                reach = HANDLE / (view.scale * view.zoom)
+                if selected is not None and selected < len(boxes) and corner(boxes[selected], fx, fy, reach):
+                    history.append([Box(**vars(b)) for b in boxes])
+                    grab = (selected, corner(boxes[selected], fx, fy, reach), (fx, fy), False)
+                elif selected is not None and selected < len(boxes) and boxes[selected].contains(fx, fy):
+                    history.append([Box(**vars(b)) for b in boxes])
+                    grab = (selected, "move", (fx, fy), False)
                 else:
-                    changed.add(k)
-                grab = None
-            else:
-                selected = hit(boxes, *view.to_frame(ux, uy))
-            mouse["down"] = mouse["drag"] = None
-        if key == ord("d") and selected is not None:
-            history.append([Box(**vars(b)) for b in boxes])
-            boxes.pop(selected)
-            selected = None
-            changed.add(k)
-        elif key == ord("r") and selected is not None:
-            history.append([Box(**vars(b)) for b in boxes])
-            boxes[selected].cls = 1 - boxes[selected].cls
-            changed.add(k)
-        elif key == ord("u") and history:
-            boxes = history.pop()
-            selected = None
-            changed.add(k)
-        elif key == ord("z"):
-            if view.zoom == 1.0:
-                view.zoom_at(*view.to_frame(*mouse["pos"]), 2.0)
-            else:
-                view.zoom_at(0, 0, 1.0)
-        elif key in (ord("n"), ord("p"), ord("g"), ord("q")):
-            write_yolo(label_path(data_dir, images[k]), boxes, w, h)
-            if key == ord("q"):
-                break
-            if key == ord("g"):
-                try:
-                    k = max(0, min(int(input(f"frame number (1-{len(images)}): ")) - 1, len(images) - 1))
-                except ValueError:
-                    print("not a number")
-            else:
-                k = min(k + 1, len(images) - 1) if key == ord("n") else max(k - 1, 0)
-            frame, boxes, view = load(k)
-            history, selected, grab = [], None, None
-    cv2.destroyWindow(WINDOW)
+                    history.append([Box(**vars(b)) for b in boxes])
+                    boxes.append(Box(0, fx, fy, fx, fy))
+                    selected = len(boxes) - 1
+                    grab = (selected, "br", (fx, fy), True)
+            if grab is not None and mouse.get("drag") is not None:
+                i, which, last, new = grab
+                if i >= len(boxes):
+                    grab = None
+                else:
+                    fx, fy = view.to_frame(*mouse["drag"])
+                    if which == "move":
+                        b = boxes[i]
+                        dx, dy = fx - last[0], fy - last[1]
+                        boxes[i] = Box(b.cls, b.x1 + dx, b.y1 + dy, b.x2 + dx, b.y2 + dy)
+                        grab = (i, which, (fx, fy), new)
+                    else:
+                        boxes[i] = resized(boxes[i], which, fx, fy)
+                mouse["drag"] = None
+            if "up" in mouse:
+                ux, uy = mouse.pop("up")
+                if grab is not None:
+                    finish_grab(ux, uy)
+                else:
+                    selected = hit(boxes, *view.to_frame(ux, uy))
+                mouse["down"] = mouse["drag"] = None
+            if key != 255 and grab is not None:                     # a key while the button is still down ends the drag
+                finish_grab(*mouse["pos"])
+                mouse["down"] = mouse["drag"] = None
+            if selected is not None and selected >= len(boxes):
+                selected = None
+            if key == ord("d") and selected is not None:
+                history.append([Box(**vars(b)) for b in boxes])
+                boxes.pop(selected)
+                selected = None
+                changed.add(k)
+            elif key == ord("r") and selected is not None:
+                history.append([Box(**vars(b)) for b in boxes])
+                boxes[selected].cls = 1 - boxes[selected].cls
+                changed.add(k)
+            elif key == ord("u") and history:
+                boxes = history.pop()
+                selected = None
+                changed.add(k)
+            elif key == ord("z"):
+                if view.zoom == 1.0:
+                    view.zoom_at(*view.to_frame(*mouse["pos"]), 2.0)
+                else:
+                    view.zoom_at(0, 0, 1.0)
+            elif key in (ord("n"), ord("p"), ord("g"), ord("q")):
+                write_yolo(label_path(data_dir, images[k]), boxes, w, h)
+                if key == ord("q"):
+                    break
+                if key == ord("g"):
+                    try:
+                        k = max(0, min(int(input(f"frame number (1-{len(images)}): ")) - 1, len(images) - 1))
+                    except ValueError:
+                        print("not a number")
+                else:
+                    k = min(k + 1, len(images) - 1) if key == ord("n") else max(k - 1, 0)
+                frame, boxes, view = load(k)
+                history, selected, grab = [], None, None
+    finally:
+        write_yolo(label_path(data_dir, images[k]), boxes, w, h)    # whatever happens, the frame on screen is saved
+        cv2.destroyWindow(WINDOW)
     print(f"{len(changed)} frames changed this session; labels in {data_dir / 'labels'}")
     return len(changed)
 
