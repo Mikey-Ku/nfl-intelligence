@@ -237,7 +237,7 @@ Every model starts pretrained and is fine-tuned; nothing is trained from scratch
 | Detector (YOLO) | corrected keyframes from our clips | `nfl prelabel data/clips/*.mp4 --every 30`, fix the boxes in X-AnyLabeling, `nfl train --epochs 40` | `runs/detect/nfl/weights/best.pt` |
 | Pass value (catch + yards) | Big Data Bowl 2026 tracking, nflverse outcomes; weeks 1-14 train, 15-18 test | `nfl value-train` (about a minute), `nfl value-baseline` | `models/pass_value.pkl` |
 | Coverage (man/zone, shell) | Big Data Bowl + nflverse participation | `nfl coverage-train` | `models/coverage.pkl` |
-| Jersey-number reader | torso crops from our film with per-track labels, plus synthetic numbers | `python -m nfl_intel.jersey_train data/jersey --out models/jersey.pt` | `models/jersey.pt` |
+| Jersey-number reader | torso crops from our film with per-track labels, plus synthetic numbers; crops marked readable or not by hand (`python -m nfl_intel.jersey_mark data/jersey --kind dark`, a page of one track's crops at a time, click green for readable and red for nothing to read) | `python -m nfl_intel.jersey_train data/jersey --out models/jersey.pt` | `models/jersey.pt` |
 | Look embedding | a run's own number-named players, as classes | `python -m nfl_intel.looks_train data/clips/live-04.mp4 outputs/live-04.csv` | `models/looks.pt` |
 
 The number reader and look embedding switch on when their files exist; without them `nfl

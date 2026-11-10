@@ -13,7 +13,8 @@ called every Browns lineman 58). So the loss asks for less:
     everything would be called unreadable. The bags that fit worst are skipped: sometimes
     none of the handful is readable;
   - "sure" crops, where a text reader already read the right number (free, but only on
-    light jerseys), are trained on as plain examples;
+    light jerseys) or a person marked the number readable (`jersey_mark`), are trained on
+    as plain examples; crops a person marked as nothing to read are trained as blank;
   - half of every batch is made-up torsos (`synth`) with every number from 0 to 99 in many
     fonts and colours, and some with no number at all, so the digits are learned as digits
     and not as "the Browns' cornerback".
@@ -162,15 +163,34 @@ def augment(img: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     return out
 
 
-def load_labels(data_dir: str | Path) -> list[dict]:
-    """Rows of labels.csv as dicts, with `number` and `sure` as ints."""
+def load_labels(data_dir: str | Path, with_marks: bool = True) -> list[dict]:
+    """Rows of labels.csv as dicts, with `number`, `sure` and `blank` as ints.
+
+    `marks.csv` (from `jersey_mark`), when present, makes a crop marked readable `sure` and
+    a crop marked as nothing to read `blank`; the rest keep the weak track label."""
     data_dir = Path(data_dir)
     with open(data_dir / "labels.csv", newline="") as f:
         rows = list(csv.DictReader(f))
+    marks: dict[str, int] = {}
+    if with_marks:
+        from .jersey_mark import load_marks
+
+        marks = load_marks(data_dir)
     for r in rows:
-        r["number"], r["sure"] = int(r["number"]), int(r["sure"])
+        r["number"], r["sure"], r["blank"] = int(r["number"]), int(r["sure"]), 0
         r["path"] = str(data_dir / "crops" / r["file"])
+        if r["file"] in marks:
+            r["sure"], r["blank"] = (1, 0) if marks[r["file"]] else (0, 1)
     return rows
+
+
+def film_loss(lp_number, lp_blank, sure, blank, blank_pull: float):
+    """Per film crop: a sure crop is its number, a blank one is nothing to read, any other is
+    its number or nothing, with a small pull towards nothing."""
+    import torch
+
+    either = -torch.logaddexp(lp_number, lp_blank) - blank_pull * lp_blank
+    return torch.where(sure, -lp_number, torch.where(blank, -lp_blank, either))
 
 
 def _targets(numbers: list[int | None]) -> tuple[np.ndarray, np.ndarray]:
@@ -204,7 +224,8 @@ def train(data_dir: str | Path, out: str | Path = DEFAULT_MODEL, epochs: int = 1
     opt = torch.optim.AdamW(net.parameters(), lr=lr, weight_decay=1e-4)
     steps = max(1, len(rows) // (bags * bag))
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=lr, total_steps=epochs * steps, pct_start=0.15)
-    log(f"{len(rows)} film crops ({sum(r['sure'] for r in rows)} sure) from {len(keys)} tracks; {steps} steps an epoch on {dev}")
+    log(f"{len(rows)} film crops ({sum(r['sure'] for r in rows)} sure, {sum(r['blank'] for r in rows)} marked blank) "
+        f"from {len(keys)} tracks; {steps} steps an epoch on {dev}")
     n_film = bags * bag
     for epoch in range(epochs):
         net.train()
@@ -218,6 +239,7 @@ def train(data_dir: str | Path, out: str | Path = DEFAULT_MODEL, epochs: int = 1
             crops = [augment(images[i], rng) for i in pick]
             numbers: list[int | None] = [rows[i]["number"] for i in pick]
             sure = np.array([bool(rows[i]["sure"]) for i in pick])
+            blank = np.array([bool(rows[i]["blank"]) for i in pick])
             for _ in range(n_synth):
                 im, n = synth(rng)
                 crops.append(augment(im, rng) if rng.random() < 0.5 else im)
@@ -228,10 +250,8 @@ def train(data_dir: str | Path, out: str | Path = DEFAULT_MODEL, epochs: int = 1
             idx = torch.arange(len(crops), device=dev)
             lp_number = lpt[idx, t] + lpu[idx, u]                   # log P(the label)
             lp_blank = lpt[:, NONE] + lpu[:, NONE]                 # log P(nothing to read)
-            film_sure = torch.from_numpy(sure).to(dev)
-            # film: a sure crop is its number; any other is its number or nothing
-            film = torch.where(film_sure, -lp_number[:n_film], -torch.logaddexp(lp_number[:n_film], lp_blank[:n_film]))
-            film = film - blank_pull * lp_blank[:n_film] * (~film_sure)
+            film = film_loss(lp_number[:n_film], lp_blank[:n_film], torch.from_numpy(sure).to(dev),
+                             torch.from_numpy(blank).to(dev), blank_pull)
             # each bag must show its number at least once
             miss = torch.log1p(-lp_number[:n_film].exp().clamp(max=1 - 1e-6)).view(bags, bag).sum(1)
             bag_loss = -torch.log1p(-miss.exp().clamp(max=1 - 1e-6))
