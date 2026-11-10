@@ -591,6 +591,12 @@ def cmd_plays_check(args) -> None:
     report(args.logs)
 
 
+def cmd_boxes(args) -> None:
+    from .boxes import edit_interactive
+
+    edit_interactive(args.data, args.scale, args.start - 1)
+
+
 def cmd_truth(args) -> None:
     from .truth import main as truth_main
 
@@ -691,6 +697,12 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--every", type=int, default=30, help="keep every Nth frame")
     pl.add_argument("--max-per-clip", type=int, default=None)
     pl.set_defaults(func=cmd_prelabel)
+
+    bx = sub.add_parser("boxes", help="correct the detector's boxes on the pre-labelled frames (draw, move, delete, player/referee)")
+    bx.add_argument("data", nargs="?", default="data/labels", help="folder with images/ and labels/")
+    bx.add_argument("--scale", type=float, default=0.5, help="display scale (4K frames at 0.5 fit a laptop screen)")
+    bx.add_argument("--start", type=int, default=1, help="frame number to begin at")
+    bx.set_defaults(func=cmd_boxes)
 
     tr = sub.add_parser("train", help="fine-tune YOLO on the corrected labels")
     tr.add_argument("--data-dir", default="data/labels")
