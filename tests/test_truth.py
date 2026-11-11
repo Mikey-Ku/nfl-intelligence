@@ -4,8 +4,8 @@ import numpy as np
 
 from nfl_intel.evaluate import evaluate
 from nfl_intel.schema import FrameResult, TrackedPlayer, read_csv, write_csv
-from nfl_intel.truth import (Click, TruthFrame, assign_id, default_out, frame_mapping, mappings_for, resume, sample_frames,
-                             save, to_results, typed)
+from nfl_intel.truth import (Click, TruthFrame, default_out, frame_mapping, mappings_for, nearest, number_frame, play_window,
+                             renumber, resume, sample_frames, save, to_results, typed)
 
 H = np.array([[0.05, 0.0, 10.0], [0.0, 0.08, 5.0], [0.0, 0.0, 1.0]])       # a plain pixel -> yards mapping
 
@@ -49,12 +49,58 @@ def test_sample_frames_every_half_second_in_one_shot():
     assert [r.frame for r in sample_frames(run, 0.5, start=1.0)] == [20, 30]
 
 
-def test_assign_id_carries_the_nearest_previous_number_and_never_doubles_up():
-    previous = [Click((0, 0), (10.0, 10.0), 1), Click((0, 0), (20.0, 10.0), 2)]
-    assert assign_id((10.5, 10.2), previous, set(), reach=3.0) == 1
-    assert assign_id((10.5, 10.2), previous, {1}, reach=3.0) == 3        # 1 already used on this frame: a new man
-    assert assign_id((40.0, 40.0), previous, set(), reach=3.0) == 3      # nobody near
-    assert assign_id(None, previous, {3}, reach=3.0) == 4                # no mapping: still a fresh number
+def _clicks(*spots):
+    return [Click((0.0, 0.0), yd, 0) for yd in spots]
+
+
+def test_the_frame_is_numbered_at_once_whatever_the_order_of_clicking():
+    previous = [Click((0, 0), (10.0, 10.0), 1), Click((0, 0), (11.5, 10.0), 2), Click((0, 0), (30.0, 20.0), 3)]
+    # 1 and 2 each stepped half a yard; clicked one at a time, nearest first, the second click would take the wrong man
+    for order in ([(10.9, 10.0), (12.0, 10.0)], [(12.0, 10.0), (10.9, 10.0)]):
+        now = _clicks(*order)
+        number_frame(now, previous, [], reach=4.0)
+        assert {c.yd: c.pid for c in now} == {(10.9, 10.0): 1, (12.0, 10.0): 2}
+    stray = _clicks((50.0, 40.0), None)
+    number_frame(stray, previous, [], reach=4.0, floor=7)
+    assert [c.pid for c in stray] == [8, 9]                                 # nobody near, or no mapping: numbers new to the play
+
+
+def test_a_running_man_keeps_his_number():
+    before = [Click((0, 0), (9.5, 10.0), 1), Click((0, 0), (15.0, 12.0), 2)]
+    previous = [Click((0, 0), (14.0, 10.0), 1), Click((0, 0), (15.0, 12.0), 2)]      # 1 covers 4.5 yards a frame, 2 stands
+    now = _clicks((15.0, 12.0), (18.5, 10.0))
+    number_frame(now, previous, before, reach=4.0)
+    assert [c.pid for c in now] == [2, 1]                                   # found where he was heading
+    lost = _clicks((15.0, 12.0), (18.5, 10.0))
+    number_frame(lost, previous, [], reach=4.0)
+    assert [c.pid for c in lost] == [2, 3]                                  # from where he stood he is out of reach: a new man
+
+
+def test_a_number_typed_by_hand_stays_and_a_clash_trades():
+    clicks = [Click((0, 0), (10.0, 10.0), 4), Click((0, 0), (12.0, 10.0), 5), Click((0, 0), (20.0, 10.0), 6)]
+    renumber(clicks, 0, 5)
+    assert [c.pid for c in clicks] == [5, 4, 6] and [c.fixed for c in clicks] == [True, True, False]
+    renumber(clicks, 2, 9)
+    assert [c.pid for c in clicks] == [5, 4, 9]
+    previous = [Click((0, 0), (10.0, 10.0), 4), Click((0, 0), (12.0, 10.0), 5), Click((0, 0), (20.0, 10.0), 6)]
+    clicks.append(Click((0, 0), (20.2, 10.0), 0))
+    number_frame(clicks, previous, [], reach=4.0)
+    assert [c.pid for c in clicks] == [5, 4, 9, 6]                          # the hand-set ones untouched, the new click matched
+
+
+def test_the_click_under_the_cursor():
+    clicks = [Click((200.0, 400.0), None, 1), Click((260.0, 400.0), None, 2)]
+    assert nearest(clicks, 128.0, 200.0, scale=0.5) == 1                    # (260, 400) is at (130, 200) on screen
+    assert nearest(clicks, 104.0, 205.0, scale=0.5) == 0
+    assert nearest(clicks, 600.0, 600.0, scale=0.5) is None
+
+
+def test_the_play_is_what_gets_labelled_by_default(tmp_path):
+    csv = tmp_path / "live-02.csv"
+    assert play_window(csv, 3) is None                                      # no play log
+    (tmp_path / "live-02.plays.json").write_text('[{"shot": 3, "snap": 32.4}, {"shot": 5, "snap": null}]')
+    assert play_window(csv, 3) == (31.4, 38.4)
+    assert play_window(csv, 5) is None and play_window(csv, 9) is None and play_window(csv, None) is None
 
 
 def test_truth_csv_round_trips_and_scores_the_run(tmp_path):
