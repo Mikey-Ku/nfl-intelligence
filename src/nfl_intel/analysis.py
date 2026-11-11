@@ -680,7 +680,8 @@ class PlayAnalyzer(AnalysisView):
         loose = [p for p in getattr(result, "loose", []) if p.field_yd is not None]
         both = mapped + loose
         xy_rel = np.array([p.field_yd for p in both])
-        slots = self.tracker.update(result.t, xy_rel, [p.team for p in both], [p.track_id if p.track_id >= 0 else None for p in both])
+        slots = self.tracker.update(result.t, xy_rel, [p.team for p in both], [p.track_id if p.track_id >= 0 else None for p in both],
+                                    confirmed=[True] * len(mapped) + [False] * len(loose))
         loose_slots, slots = slots[len(mapped):], slots[: len(mapped)]
         if self._numbers is not None:
             self._numbers.update(frame, [p.box for p in mapped], [s.id for s in slots])
@@ -723,15 +724,15 @@ class PlayAnalyzer(AnalysisView):
                     team = 1 - self.anchor.offense_team
                 out.players.append(TrackedPlayer(
                     track_id=p.track_id, team=team, box=p.box, conf=p.conf, foot_px=p.foot_px,
-                    field_yd=(float(q[0]), float(q[1])), role=role, label=self.labels.get(s.id),
+                    field_yd=(float(q[0]), float(q[1])), role=role, label=self.labels.get(s.id), slot=s.id,
                 ))
             for p, s in zip(loose, loose_slots):
-                if s.hits >= self.tracker.min_hits and self.roles.get(s.id) not in (None, "OFF"):
+                if s is not None and s.hits >= self.tracker.min_hits and self.roles.get(s.id) not in (None, "OFF"):
                     q = self.anchor.to_absolute(s.xy)[0]
                     side = self.anchor.offense_team if self.roles[s.id] in ("QB", "REC", "OL") else 1 - self.anchor.offense_team
                     out.loose.append(TrackedPlayer(track_id=-1, team=side, box=p.box, conf=p.conf, foot_px=p.foot_px,
                                                    field_yd=(float(q[0]), float(q[1])), role=self.roles[s.id], label=self.labels.get(s.id)))
-            shown = {s.id for s in slots} | {s.id for s in loose_slots}
+            shown = {s.id for s in slots} | {s.id for s in loose_slots if s is not None}
             for s in self.tracker.players:
                 if s.id not in shown and s.id in self.roles and self.roles[s.id] != "OFF":
                     q = self.anchor.to_absolute(s.xy)[0]
@@ -814,7 +815,7 @@ class AnalyzedTracker:
                 xy = a.anchor.to_absolute(xy)
             players = [TrackedPlayer(res.players[i].track_id, res.players[i].team, res.players[i].box, res.players[i].conf,
                                      res.players[i].foot_px, (float(xy[k, 0]), float(xy[k, 1])),
-                                     a.roles.get(slot_ids[k]), a.labels.get(slot_ids[k])) for k, i in enumerate(which)]
+                                     a.roles.get(slot_ids[k]), a.labels.get(slot_ids[k]), slot_ids[k]) for k, i in enumerate(which)]
             out.append(FrameResult(res.frame, res.t, res.size, players, res.shot, True))
         return out
 
@@ -864,6 +865,8 @@ class AnalyzedTracker:
                 res.players[i] = p
             res.anchored = True
         if len(a.slot_ids) == len(which) and which:
+            for k, i in enumerate(which):
+                res.players[i].slot = a.slot_ids[k]
             self._frames.append((res, which, list(a.slot_ids)))
             del self._frames[: -self.keep]
         if a.since_snap is not None and a.since_snap >= self.GRADE_AFTER and self.analyzer.throw is None and not self._graded:

@@ -67,7 +67,7 @@ those rows, so anything built on the Big Data Bowl layout can read it.
 |---|---|
 | `fieldnumbers.py` | Lays the field flat through the mapping (never mirrored, digits can't be read backwards) and reads the big painted numbers. Each number's arrow points at the nearer goal line, which pins the mapping's yards to real yard lines. |
 | `anchor.py` | Puts the play on the real field: the line of scrimmage from where the two teams face each other, the direction from the painted numbers, the end zone, the huddle or the formation, and the yard line from the play-by-play when it is known. `Anchor.to_absolute` converts the mapping's yards to the field's. |
-| `fieldtrack.py` | Tracking in yards. `FieldTracker` matches each frame's detections to known players with a Hungarian assignment; a player hidden behind another rides with him until they part. `SnapDetector` calls the snap when a still formation starts moving, then walks back to the moment it began. |
+| `fieldtrack.py` | Tracking in yards. `FieldTracker` matches each frame's detections to known players with a Hungarian assignment; a detection stays with the player who had its image track, a box the image tracker has not confirmed never starts a player, a second track started on a man takes over his number when the first stops, and a player hidden behind another rides with him until they part. `SnapDetector` calls the snap when a still formation starts moving, then walks back to the moment it began. |
 | `roles.py` | Who is who at the snap: side of the ball first, jersey second, then the quarterback by where he stands behind the ball, linemen by the box, rushers by the line. Each side is held to eleven, so officials fall out. `update_roles` corrects roles from what players do after the snap. `describe_look` writes the formation in words. |
 | `jersey.py` | Who a track is, read off his shirt. `torso_crop`, `NumberNet` (a pretrained ResNet-18 with a tens head and a units head), `NumberVotes` adding up the frames the reader is sure of, `assign` giving each roster number to at most one track on clear evidence, and `ShotNumbers`, the piece the analyzer calls. The roster from the screen makes it a 22-way choice. |
 | `looks.py` | Knowing a named player again by his look. `LookEmbedder` (ResNet-18 body features in three parts, fine-tuned by `looks_train.py`), `LookBook` (a running mean look per team and number for the game, saved and loaded), `ShotLooks` (each track's recent looks), and `recognise_many`, a frame-by-frame vote that names a man only when he is clearly ahead of the runner-up. |
@@ -101,7 +101,7 @@ those rows, so anything built on the Big Data Bowl layout can read it.
 | `roles_check.py` | `nfl roles-check`: marks role assignment against 2,572 real snaps, with and without the charted hints. |
 | `plays_check.py` | `nfl plays-check`: marks a play log against the official charting (alignment, backs, box, rushers). |
 | `truth.py` | `nfl truth`: click where each player stands on frames of a run, half a second apart; clicks become yards through the run's own mapping, numbers carry by nearness; writes truth in the tracking schema. |
-| `evaluate.py` | `nfl eval`: position error, recall, identity switches and MOTA against that truth. |
+| `evaluate.py` | `nfl eval`: position error (with its steady offset and the spread around it), recall, identity switches and MOTA against that truth. Players are paired after the offset is taken out, and identity is the field tracker's `slot`. |
 | `train.py` | `nfl prelabel` and `nfl train`: keyframes with detector boxes to correct, a dataset YAML, a two-stage YOLO fine-tune. |
 | `boxes.py` | `nfl boxes`: the window for correcting those boxes (draw, move, resize, delete, player or referee, zoom), reading and writing the YOLO text files in place. |
 | `demo.py` | `nfl value-demo`: replays a Big Data Bowl play with the panel, on the league's own tracking. Where the value model was first watched. |
@@ -112,7 +112,7 @@ those rows, so anything built on the Big Data Bowl layout can read it.
 | Path | What it is |
 |---|---|
 | `scripts/make_showcase.py` | Builds the two showcase videos from chosen plays with captions. |
-| `tests/` | 183 tests, synthetic data only, no footage. `formations.py` is the shared synthetic play (a shotgun formation and a film of it); `conftest.py` runs Qt offscreen. Each `test_*.py` matches a module or a stage. |
+| `tests/` | 193 tests, synthetic data only, no footage. `formations.py` is the shared synthetic play (a shotgun formation and a film of it); `conftest.py` runs Qt offscreen. Each `test_*.py` matches a module or a stage. |
 | `README.md` | The front page: what it does, what it looks like, quick start. |
 | `docs/USAGE.md` | Every command and flag, output files, training, how to know it is working. |
 | `docs/STATUS.md` | Where each capability stands, with its measured number, what is next, known limits. |

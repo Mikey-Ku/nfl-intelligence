@@ -9,7 +9,7 @@ to see each of these for yourself on a run.
 
 | Capability | Status | Measured | How to check |
 |---|---|---|---|
-| Player detection and tracking | Working; fine-tuned detector available | 17-18 fps on 4K with full analysis; linemen in a pile still merge | `nfl run --shots`, panel's Tracking block |
+| Player detection and tracking | Working; fine-tuned detector available | 17-18 fps on 4K with full analysis; 0.97 yd and 92% found on one labelled play; linemen in a pile still merge and trade numbers | `nfl run --shots`, panel's Tracking block |
 | Team split by jersey colour | Working | | overlay colours |
 | Field mapping, sideline angle | Working, day and night | 70-100% of frames, 0.03-0.08 yd residual; 0.03-0.12 on the night game | `--shots` shows the fitted grid on the paint |
 | Field mapping, end-zone angle | Not mapped | long lens defeats the camera model | panel says "read from the sideline view" |
@@ -85,40 +85,76 @@ Two things broke on the first run, and both are fixed:
   first and light-green ones when that gives no lock, so the three older clips score what
   they did before.
 
-After the fixes, with the fine-tuned detector, against the charting:
+After the fixes, with the fine-tuned detector and the steadier identities described below,
+against the charting:
 
 | | games it was built on | third game |
 |---|---|---|
-| runs and passes worked out, of those identified | 43 of 49 | 24 of 29 |
-| quarterback named | 40 of 42 | 22 of 24 |
-| passes given a value | 23 of 24 | 11 of 12 |
-| throw found | 16 of 24 | 8 of 12 |
-| backs in the backfield, exact (within one) | 30 (40) of 41 | 11 (23) of 24 |
-| defenders in the box, exact (within one) | 21 (36) of 42 | 8 (18) of 24 |
-| pass rushers, exact (within one) | 11 (23) of 24 | 4 (9) of 12 |
-| players named by number, a play | 5.3 | 0.7 |
+| runs and passes worked out, of those identified | 43 of 49 | 23 of 29 |
+| quarterback named | 41 of 42 | 22 of 23 |
+| passes given a value | 24 of 24 | 10 of 11 |
+| throw found | 14 of 24 | 8 of 11 |
+| backs in the backfield, exact (within one) | 36 (42) of 42 | 15 (23) of 23 |
+| defenders in the box, exact (within one) | 23 (41) of 42 | 10 (19) of 23 |
+| pass rushers, exact (within one) | 14 (23) of 24 | 4 (9) of 11 |
+| players named by number, a play | 5.7 | 0.7 |
 
 What carries over: reading the screen, the mapping, the snap, the quarterback, the value.
 What does not yet: exact counts in the box and of rushers, and names. The number reader has
 seen almost no purple or teal-trimmed shirts, and the look memory is trained per game and
-was not trained on this one. Of the five plays not worked out, two are snaps from the
-1-yard line and two are cut off by the ends of the clip.
+was not trained on this one. Of the six plays not worked out, three are snaps from the
+1-yard line, where half the players are lost in the pile, and two are cut off by the ends
+of the clip.
+
+## Hand-labelled truth
+
+One play so far: Panthers 2nd and 15 (`live-02`, shot 3), 14 frames from a second before the
+snap to six after, every player's feet clicked with `nfl truth`, scored with `nfl eval`.
+
+| | result | the brief's target |
+|---|---|---|
+| position error | 0.97 yd | about 1 yd |
+| of which a steady offset | 0.85 yd across the field | |
+| error around that offset | 0.36 yd | |
+| players found | 91.7% | |
+| false players | none | |
+| identity changes on the play | 21 | at most 2 |
+
+The offset is the run placing a player at the bottom of his box and the labeller clicking a
+little higher; it is the same on every player and every frame. The stock detector finds
+58.9% of the players on this play.
+
+Identity is the miss. The first score was 61 changes, and looking into it found the field
+tracker, whose number the names and roles hang on, less steady than the image tracker under
+it: a second, unconfirmed box on a player started a ghost beside him, and the two traded his
+detections. A detection now stays with the player who had its image track, an unconfirmed
+box starts a player only well clear of everyone, and a second track started on a man takes
+over his number. That took the play from 61 to 21 and lifted the charting checks on all
+four clips (backs in the backfield exact 30 to 36 of 42, the box within one 36 to 41 of 42).
+Corners, safeties and wide receivers now keep one number all play. The 21 left are linemen
+and backs in the pile and players lost late in the play, and some are the labels: at
+half-second steps two linemen crossing are hard to number by hand.
+
+This is one play, and the one the fixes were worked out on. The other 19 are what make it a
+number.
 
 ## Where it stands, in one paragraph
 
 Measured on three games, 78 runs and passes, 27 minutes of film. Reading the screen, pinning the field
 and reading the formation are solid, and they held on a game the models had never seen once
 two things that game exposed were fixed. The number that matters most, how far each tracked
-player is from where he really stood, has not been measured: the mapping's 0.03-0.08 yd
-residual is the grid against the paint, not a player against the truth, and no hand-labelled
-truth exists yet. So this is a working prototype with its central claim unverified.
+player is from where he really stood, has been measured on one hand-labelled play: about a
+yard, most of it a steady offset, with identities through the pile well short of the target.
+One play is not a result. So this is a working prototype with its central claim checked
+once.
 
 ## The bar for a first release
 
 The brief's own success criteria, plus the detector:
 
-1. **Truth on 20 plays.** `nfl truth` labels a play in about 20 minutes; `nfl eval` scores
-   it. Target from the brief: about 1 yard mean error, at most 2 identity swaps a play.
+1. **Truth on 20 plays.** One labelled so far. `nfl truth` labels a play in about ten
+   minutes; `nfl eval` scores it. Target from the brief: about 1 yard mean error, at most 2
+   identity swaps a play.
 2. **Detector fine-tuned.** Done 2026-11-10 on 275 corrected frames; the numbers are
    above.
 3. **A third game.** Done 2026-11-11: a night game, dark home jerseys, another stadium.
