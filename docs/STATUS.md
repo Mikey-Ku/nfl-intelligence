@@ -1,6 +1,6 @@
 # Project status
 
-Last updated 2026-11-10. "Measured" means a number checked against charting, tracking data
+Last updated 2026-11-11. "Measured" means a number checked against charting, tracking data
 or by eye on frames; "by eye" means no ground truth exists yet. [SHOWCASE.md](SHOWCASE.md)
 says where each number comes from; [USAGE.md](USAGE.md#how-to-know-it-is-working) says how
 to see each of these for yourself on a run.
@@ -11,9 +11,9 @@ to see each of these for yourself on a run.
 |---|---|---|---|
 | Player detection and tracking | Working; fine-tuned detector available | 17-18 fps on 4K with full analysis; linemen in a pile still merge | `nfl run --shots`, panel's Tracking block |
 | Team split by jersey colour | Working | | overlay colours |
-| Field mapping, sideline angle | Working | 70-100% of frames, 0.03-0.08 yd residual | `--shots` shows the fitted grid on the paint |
+| Field mapping, sideline angle | Working, day and night | 70-100% of frames, 0.03-0.08 yd residual; 0.03-0.12 on the night game | `--shots` shows the fitted grid on the paint |
 | Field mapping, end-zone angle | Not mapped | long lens defeats the camera model | panel says "read from the sideline view" |
-| Play identified from the screen | Working | every run and pass of 45 | `play: ...` line while running; `matched` in the play log |
+| Play identified from the screen | Working, both NFL Pro layouts | every run and pass on all three games (49 and 29) | `play: ...` line while running; `matched` in the play log |
 | Anchoring to real yard lines | Working | 36 of 40 from the numbers, rest from the formation | `line of scrimmage ... settled by` line; `anchored_by` in the play log |
 | Snap detection | Working | 0.0-0.2 s late on 4 plays by eye, then corrected | `snap` in the play log; `--topdown` video |
 | Roles from the formation | Working | QB 39 of 42 on film; 71% / 96% on 2,572 BDB snaps | `nfl plays-check`, `nfl roles-check` |
@@ -68,11 +68,47 @@ stock `yolo11s.pt`, which is what a fresh clone has.
 The held-out frames and the clips are from the same two games the detector trained on, so a
 new game will show less. The third game is the test of that.
 
+## The third game
+
+Jaguars at Ravens, Week 9: a Thursday night game in Baltimore, the home team in purple, ten
+minutes of film from the first drive (`data/clips/live-06.mp4`, captured 2026-11-10). None
+of it was in the detector's training frames or the number reader's crops.
+
+Two things broke on the first run, and both are fixed:
+
+- NFL Pro had redesigned its player since September. The header is now one line on the
+  video's top edge ("2ND & 6 BAL 17") that no longer says who has the ball, and the
+  on-field list lost its title. No play could be identified. `playinfo` and `personnel` now
+  read both layouts; the offense comes from the list or from the play-by-play row.
+- Under the lights the yard lines are light green, as colourful as the turf, and the line
+  finder only took white. The mapping locked on 3 plays. `register` now tries white lines
+  first and light-green ones when that gives no lock, so the three older clips score what
+  they did before.
+
+After the fixes, with the fine-tuned detector, against the charting:
+
+| | games it was built on | third game |
+|---|---|---|
+| runs and passes worked out, of those identified | 43 of 49 | 24 of 29 |
+| quarterback named | 40 of 42 | 22 of 24 |
+| passes given a value | 23 of 24 | 11 of 12 |
+| throw found | 16 of 24 | 8 of 12 |
+| backs in the backfield, exact (within one) | 30 (40) of 41 | 11 (23) of 24 |
+| defenders in the box, exact (within one) | 21 (36) of 42 | 8 (18) of 24 |
+| pass rushers, exact (within one) | 11 (23) of 24 | 4 (9) of 12 |
+| players named by number, a play | 5.3 | 0.7 |
+
+What carries over: reading the screen, the mapping, the snap, the quarterback, the value.
+What does not yet: exact counts in the box and of rushers, and names. The number reader has
+seen almost no purple or teal-trimmed shirts, and the look memory is trained per game and
+was not trained on this one. Of the five plays not worked out, two are snaps from the
+1-yard line and two are cut off by the ends of the clip.
+
 ## Where it stands, in one paragraph
 
-Measured on two games, 45 plays, 17 minutes of film. Reading the screen, pinning the field
-and reading the formation are solid. The detector has been fine-tuned on these two games and
-is untested on any other. The number that matters most, how far each tracked
+Measured on three games, 78 runs and passes, 27 minutes of film. Reading the screen, pinning the field
+and reading the formation are solid, and they held on a game the models had never seen once
+two things that game exposed were fixed. The number that matters most, how far each tracked
 player is from where he really stood, has not been measured: the mapping's 0.03-0.08 yd
 residual is the grid against the paint, not a player against the truth, and no hand-labelled
 truth exists yet. So this is a working prototype with its central claim unverified.
@@ -85,9 +121,8 @@ The brief's own success criteria, plus the detector:
    it. Target from the brief: about 1 yard mean error, at most 2 identity swaps a play.
 2. **Detector fine-tuned.** Done 2026-11-10 on 275 corrected frames; the numbers are
    above.
-3. **A third game**, not more of the same two: a night game, a team with dark home jerseys,
-   a different stadium. Captured with `nfl capture`, run with `nfl run`, marked with
-   `nfl plays-check` and the game table, looked at through `--shots`.
+3. **A third game.** Done 2026-11-11: a night game, dark home jerseys, another stadium.
+   What broke and the numbers are above.
 
 With those three the README gets a "within X yd on 20 labelled plays" tile and the word
 "prototype" can go.

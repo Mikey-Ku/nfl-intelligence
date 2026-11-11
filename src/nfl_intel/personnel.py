@@ -1,5 +1,8 @@
 """Who is on the field, read from NFL Pro's "On Field Players" list beside the video.
 
+The list sat under that title until the autumn of 2026; now it starts straight at
+"<Team> Offense" or "<Team> Defense". Either is found.
+
 The list gives each player's number, position and name for both sides. From it come the
 personnel grouping a coach would call out ("11 personnel", "nickel") and, where the
 formation leaves no doubt about who is who, names to put on the players we track.
@@ -87,12 +90,29 @@ def _position(text: str) -> str | None:
     return t if t in KNOWN else None
 
 
+SIDE_HEAD = re.compile(r"[A-Za-z0-9][A-Za-z0-9 .']{1,20}\s+(Offense|Defense)", re.IGNORECASE)
+
+
+def list_head(boxes) -> tuple[float, float] | None:
+    """Where the list starts: (left edge of its number column, top of its first line).
+    Under the "ON FIELD PLAYERS" title when there is one, otherwise at the first
+    "<Team> Offense / Defense" bar, whose text starts three line-heights right of the numbers."""
+    title = next((b for b in boxes if re.search(r"ON\s*FIELD\s*PLAYERS", b.text.upper())), None)
+    if title is not None:
+        return title.box[0] - 25.0, title.box[3]
+    bars = [b for b in boxes if SIDE_HEAD.fullmatch(b.text.strip())]
+    if not bars:
+        return None
+    bar = min(bars, key=lambda b: b.box[1])
+    return bar.box[0] - 4.5 * (bar.box[3] - bar.box[1]), bar.box[1]
+
+
 def parse_on_field(boxes) -> OnField | None:
     """Build the list from OCR boxes (anything with .text and .box = x1, y1, x2, y2)."""
-    head = next((b for b in boxes if re.search(r"ON\s*FIELD\s*PLAYERS", b.text.upper())), None)
+    head = list_head(boxes)
     if head is None:
         return None
-    left, top = head.box[0] - 25.0, head.box[3]
+    left, top = head
     heights = sorted(b.box[3] - b.box[1] for b in boxes)
     line = max(4.0, heights[len(heights) // 2])
     mine = sorted((b for b in boxes if b.box[0] >= left and b.box[1] >= top - 2), key=lambda b: (b.box[1] + b.box[3]) / 2)

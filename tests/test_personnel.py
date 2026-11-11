@@ -98,3 +98,11 @@ def test_an_extra_lineman_is_called_jumbo():
                     defense=[Listed(90 + i, pos, f"De Fender{i}") for i, pos in enumerate(["DT", "DT", "DT", "OLB", "OLB", "ILB", "ILB", "CB", "CB", "SS", "FS"])])
     assert heavy.personnel == "Jumbo, 7 linemen: 1 RB, 2 TE, 0 WR"
     assert heavy.package == "Base, 3-4-4"
+
+
+def test_the_list_without_its_title_starts_at_the_first_team_bar():
+    boxes = [b for b in _screen() if b.text != "ON FIELD PLAYERS"]
+    got = parse_on_field(boxes)
+    assert got.complete and (got.offense_team, got.defense_team) == ("Packers", "Falcons")
+    assert got.offense[0] == Listed(10, "QB", "Jordan Love") and got.defense[0].name == "Maason Smith"
+    assert parse_on_field([_at(382, 888, "(8:21) Offense: J.Love pass short right for 15 yards")]) is None

@@ -134,3 +134,27 @@ def test_following_a_pan_and_zoom():
     assert to_truth(moved, H) < 1.0
     regr.reset()
     assert regr.H is None and not regr.locked
+
+
+def test_light_green_lines_under_floodlights_are_paint():
+    """A thin line on vivid turf comes out light green, as colourful as the grass. It is
+    still a line; gold lettering of the same brightness is not."""
+    import cv2
+
+    from nfl_intel.registration import paint_mask
+
+    grass_lab = np.array([138, 101, 171], dtype=np.uint8)
+    line_lab = np.array([185, 106, 160], dtype=np.uint8)           # the grass, lighter: on the way to grey
+    gold_lab = np.array([185, 128, 190], dtype=np.uint8)           # as bright, another colour
+    lab = np.tile(grass_lab, (300, 600, 1))
+    for x in (100, 250, 400):
+        lab[:, x : x + 4] = line_lab
+    lab[120:180, 480:560] = gold_lab
+    lab[140:160, 500:504] = line_lab                               # a stroke inside the lettering
+    img = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    assert not (paint_mask(img, None, grass_lab.astype(float)) > 0)[:, 95:410].any()      # white lines only: nothing
+    mask = paint_mask(img, None, grass_lab.astype(float), soft=True) > 0
+    for x in (100, 250, 400):
+        assert mask[:, x : x + 4].mean() > 0.8
+    assert not mask[100:200, 460:580].any()                        # the lettering and what is near it
+    assert mask[:, :90].mean() < 0.01

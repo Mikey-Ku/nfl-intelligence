@@ -3,6 +3,10 @@
 NFL Pro shows, above the video, "Q3 03:41", "3RD & 1", "ATL ON GB 7", and under it the
 play's description. Those identify one row of nflverse play-by-play, which carries what the
 film alone can't tell us: the real yard line, who has the ball, and what happened.
+
+Since the autumn of 2026 the header is a strip on the video's top edge: "3RD & 1 GB 7" over
+a small "Q3 03:41". It no longer says who has the ball; that comes from the on-field list
+("Falcons Offense") or, failing that, from the play-by-play row itself. Both are read.
 """
 
 from __future__ import annotations
@@ -16,6 +20,15 @@ import numpy as np
 
 NFLVERSE = Path("data/nflverse")
 ORDINAL = {"1ST": 1, "2ND": 2, "3RD": 3, "4TH": 4}
+DOWN_LINE = re.compile(r"(1ST|2ND|3RD|4TH)\s*&\s*(\d{1,2}|GOAL)\b")      # capitals: the play list under the video writes "1st & 10"
+TEAMS = {                                                              # nickname on the on-field list -> nflverse abbreviation
+    "cardinals": "ARI", "falcons": "ATL", "ravens": "BAL", "bills": "BUF", "panthers": "CAR", "bears": "CHI",
+    "bengals": "CIN", "browns": "CLE", "cowboys": "DAL", "broncos": "DEN", "lions": "DET", "packers": "GB",
+    "texans": "HOU", "colts": "IND", "jaguars": "JAX", "chiefs": "KC", "rams": "LA", "chargers": "LAC",
+    "raiders": "LV", "dolphins": "MIA", "vikings": "MIN", "patriots": "NE", "saints": "NO", "giants": "NYG",
+    "jets": "NYJ", "eagles": "PHI", "steelers": "PIT", "seahawks": "SEA", "49ers": "SF", "buccaneers": "TB",
+    "titans": "TEN", "commanders": "WAS",
+}
 
 
 @dataclass
@@ -35,6 +48,11 @@ class PlayHeader:
     @property
     def complete(self) -> bool:
         return None not in (self.quarter, self.clock, self.offense, self.yard)
+
+    @property
+    def placed(self) -> bool:
+        """When and where, without who: all the newer header gives."""
+        return None not in (self.quarter, self.clock, self.yard)
 
     @property
     def yards_to_goal(self) -> int | None:
@@ -57,15 +75,22 @@ def parse_header(lines: list[str]) -> PlayHeader:
     for raw in lines:
         text = raw.strip()
         up = text.upper()
-        m = re.search(r"\b(?:Q([1-4])|(OT))\s+(\d{1,2}):(\d{2})\b", up)
+        m = re.search(r"\b(?:Q\s?([1-4])|(OT))\s+(\d{1,2}):(\d{2})\b", up)
         if m and h.quarter is None:
             h.quarter = 5 if m.group(2) else int(m.group(1))
             h.clock = f"{int(m.group(3)):02d}:{m.group(4)}"
             continue
-        m = re.fullmatch(r"(1ST|2ND|3RD|4TH)\s*&\s*(\d{1,2}|GOAL)", up)
+        m = DOWN_LINE.fullmatch(text)                # as written, in capitals: the play list's "1st & 10" is another play
         if m and h.down is None:
             h.down = ORDINAL[m.group(1)]
             h.distance = None if m.group(2) == "GOAL" else int(m.group(2))
+            continue
+        # the newer header, one line: "2ND & 6 BAL 17" ("1ST & 10 50" at midfield); the ball's side but not whose ball
+        m = re.fullmatch(DOWN_LINE.pattern + r"\s+(?:([A-Z]{2,3})\s+)?(\d{1,2})", text)
+        if m and h.down is None and h.yard is None:
+            h.down = ORDINAL[m.group(1)]
+            h.distance = None if m.group(2) == "GOAL" else int(m.group(2))
+            h.side, h.yard = m.group(3), int(m.group(4))
             continue
         m = re.fullmatch(r"([A-Z]{2,3})\s+ON\s+(?:([A-Z]{2,3})\s+)?(\d{1,2})", up)
         if m and h.offense is None:
@@ -108,18 +133,54 @@ def read_screen(frame: np.ndarray, downscale: int = 2):
     from .ocr import read_text
     from .personnel import parse_on_field
 
+    from .personnel import list_head
+
     small = frame[::downscale, ::downscale] if downscale > 1 else frame
     boxes = [b for b in read_text(np.ascontiguousarray(small)) if b.confidence >= 0.3]
     on_field = None
-    head = next((b for b in boxes if "ON FIELD" in b.text.upper()), None)
+    head = list_head(boxes)
     if head is not None:
         # the list again at full size: its one-letter positions (C, G, T, S) are too small at half size
-        x0 = max(0, int(head.box[0] * downscale) - 40)
-        y0 = max(0, int(head.box[1] * downscale) - 20)
+        x0 = max(0, int(head[0] * downscale) - 40)
+        y0 = max(0, int(head[1] * downscale) - 60)                  # the title or the first bar stays in the crop
         # ...and half as large again: two-letter positions next to a long name otherwise go unread now and then
         crop = cv2.resize(frame[y0:, x0:], None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
         on_field = parse_on_field([b for b in read_text(crop) if b.confidence >= 0.3])
-    return parse_header([b.text for b in boxes]), on_field
+    header = parse_header([b.text for b in boxes])
+    if not header.complete:
+        strip = _header_strip(frame, boxes, downscale)
+        if strip:
+            header = parse_header(strip + [b.text for b in boxes])
+    if header.offense is None and on_field is not None:
+        header.offense = TEAMS.get(on_field.offense_team.strip().lower())
+    return header, on_field
+
+
+def text_rows(boxes) -> list[str]:
+    """Boxes that sit on one line, joined left to right: "Q1" and "04:25" read apart are one row."""
+    rows: list[list] = []
+    for b in sorted(boxes, key=lambda b: (b.box[1] + b.box[3]) / 2):
+        mid, tall = (b.box[1] + b.box[3]) / 2, b.box[3] - b.box[1]
+        if rows and abs(mid - rows[-1][0]) <= 0.5 * tall:
+            rows[-1][1].append(b)
+        else:
+            rows.append([mid, [b]])
+    return [" ".join(b.text.strip() for b in sorted(items, key=lambda b: b.box[0])) for _, items in rows]
+
+
+def _header_strip(frame: np.ndarray, boxes, downscale: int) -> list[str]:
+    """The newer header's two lines, read again at twice the size: the quarter and clock
+    under the down are too small for the whole-window pass, and the yard number can come
+    apart from its line."""
+    from .ocr import read_text
+
+    downs = [b for b in boxes if DOWN_LINE.match(b.text.strip())]
+    if not downs:
+        return []
+    x1, y1, x2, y2 = (int(v * downscale) for v in min(downs, key=lambda b: b.box[1]).box)
+    crop = frame[max(0, y1 - 16): y2 + 44, max(0, x1 - 120): x2 + 120]
+    big = cv2.resize(crop, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+    return text_rows([b for b in read_text(np.ascontiguousarray(big)) if b.confidence >= 0.3])
 
 
 def load_play_by_play(season: int, root: str | Path = NFLVERSE):
@@ -247,11 +308,34 @@ def _clock_seconds(text: str) -> int | None:
     return int(m.group(1)) * 60 + int(m.group(2)) if m else None
 
 
+def _who_has_the_ball(header: PlayHeader, pbp) -> str | None:
+    """The newer header gives the clock and the yard line but not the offense. Within one
+    game that is one play; the row says whose ball it is. None unless exactly one team fits."""
+    import polars as pl
+
+    if header.game is None:
+        return None
+    secs = _clock_seconds(header.clock)
+    df = pbp.filter(pl.col("posteam").is_in(list(header.game)) & pl.col("defteam").is_in(list(header.game))
+                    & (pl.col("qtr") == header.quarter))
+    df = df.filter(pl.col("time").map_elements(lambda s: _clock_seconds(s) if s else None, return_dtype=pl.Int64) == secs)
+    if header.week is not None:
+        df = df.filter(pl.col("week") == header.week)
+    if header.down is not None:
+        df = df.filter(pl.col("down") == header.down)
+    want = f"{header.side} {header.yard}" if header.side else str(header.yard)
+    narrowed = df.filter(pl.col("yrdln") == want)
+    if narrowed.height:
+        df = narrowed
+    teams = set(df["posteam"].to_list())
+    return teams.pop() if len(teams) == 1 else None
+
+
 def match_play(header: PlayHeader, pbp=None, root: str | Path = NFLVERSE) -> PlayRecord:
     """Find the header's play in the play-by-play. Unmatched plays still carry what the
     header itself says (the yard line is enough to anchor the field)."""
     rec = PlayRecord(header=header, yards_to_goal=header.yards_to_goal, description=header.description)
-    if not header.complete:
+    if not header.placed:
         rec.notes.append("could not read the play header")
         return rec
     if pbp is None:
@@ -259,6 +343,12 @@ def match_play(header: PlayHeader, pbp=None, root: str | Path = NFLVERSE) -> Pla
             header.season = latest_season(root)            # nothing on screen says: assume the newest film we have plays for
         if header.season is not None:
             pbp = _cached("pbp", header.season, root)
+    if header.offense is None and pbp is not None:
+        header.offense = _who_has_the_ball(header, pbp)
+        rec.yards_to_goal = header.yards_to_goal
+    if not header.complete:
+        rec.notes.append("could not read the play header")
+        return rec
     if pbp is None:
         rec.notes.append("no play-by-play file for this season")
         return rec

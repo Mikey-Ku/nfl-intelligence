@@ -106,6 +106,7 @@ class Registration:
     hash_rows: list[Line] = field(default_factory=list)
     ticks_between: float = 0.0               # hash marks between neighbouring yard lines (4 when right)
     notes: list[str] = field(default_factory=list)
+    soft: bool = False                       # found on light-green lines (paint_mask's `soft`), not white ones
 
     def to_field(self, pts_px) -> np.ndarray:
         pts = np.asarray(pts_px, dtype=np.float64).reshape(-1, 1, 2)
@@ -141,7 +142,8 @@ def video_rect(frame: np.ndarray, band: tuple[int, int], grass: np.ndarray) -> t
     Left and right: the run of columns that are mostly grass within the turf rows. Top and
     bottom: grow from the turf rows until a row of the player's dark surround. The camera's
     optical centre is the middle of this rectangle, so it has to be the whole picture, crowd
-    included, not just the grass.
+    included, not just the grass. (The newer player's header strip sits on the video's top
+    edge and is taken in with it: 4% of the height, which moves the mapping by under 0.05 yd.)
     """
     top, bottom = band
     cols = grass[top:bottom].mean(axis=0)
@@ -182,7 +184,8 @@ class View:
     boxes: np.ndarray | None                 # players' boxes in working pixels
 
 
-def prepare(frame: np.ndarray, field_info, boxes: np.ndarray | None, width: int, rect=None, img: np.ndarray | None = None) -> View | None:
+def prepare(frame: np.ndarray, field_info, boxes: np.ndarray | None, width: int, rect=None, img: np.ndarray | None = None,
+            soft: bool = False) -> View | None:
     rect = rect or video_rect(frame, field_info.band, field_info.grass)
     x1, y1, x2, y2 = rect
     if x2 - x1 < 200 or y2 - y1 < 100:
@@ -193,7 +196,7 @@ def prepare(frame: np.ndarray, field_info, boxes: np.ndarray | None, width: int,
     wb = None
     if boxes is not None and len(boxes):
         wb = (np.asarray(boxes, dtype=np.float64) - np.array([x1, y1, x1, y1])) * scale
-    mask = paint_mask(img, wb, field_info.grass_lab)
+    mask = paint_mask(img, wb, field_info.grass_lab, soft)
     top = int((field_info.band[0] - y1) * scale)
     bottom = int((field_info.band[1] - y1) * scale)
     mask[: max(0, top)] = 0
@@ -201,8 +204,15 @@ def prepare(frame: np.ndarray, field_info, boxes: np.ndarray | None, width: int,
     return View(img, mask, rect, scale, CANON_WIDTH / float(width), wb)
 
 
-def paint_mask(img: np.ndarray, boxes: np.ndarray | None = None, grass_lab: np.ndarray | None = None) -> np.ndarray:
+def paint_mask(img: np.ndarray, boxes: np.ndarray | None = None, grass_lab: np.ndarray | None = None, soft: bool = False) -> np.ndarray:
     """Painted field lines: brighter than the grass, colourless and thin.
+
+    `soft` also takes the grass's own colour made lighter. That is what a thin line looks
+    like under floodlights on vivid turf: the video blends it with the grass either side, so
+    it comes out light green, as colourful as the grass but brighter. In Lab that is a point
+    on the way from the grass's colour to grey; a logo or end-zone lettering is somewhere
+    else entirely. It is the second thing tried (see `register`), so film whose lines are
+    white is read exactly as before.
 
     Removed: the players' boxes, and everything in or near clutter. Clutter is decoration
     (end-zone lettering, logos: painted colour that is neither grass nor white) and thick
@@ -217,10 +227,16 @@ def paint_mask(img: np.ndarray, boxes: np.ndarray | None = None, grass_lab: np.n
     ell = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
     tophat = cv2.morphologyEx(L.astype(np.uint8), cv2.MORPH_TOPHAT, ell)
     chroma = np.abs(a - 128) + np.abs(b - 128)
-    white = (L > gL + 22) & (chroma < 45)
+    # where each pixel's colour sits against the line from grey to the grass's colour
+    ua, ub = ga - 128.0, gb - 128.0
+    reach = max(1.0, float(np.hypot(ua, ub)))
+    along = ((a - 128) * ua + (b - 128) * ub) / reach             # 0 at grey, `reach` at the grass
+    off = np.abs((a - 128) * ub - (b - 128) * ua) / reach         # how far to the side of that line
+    lightened = (off < 12) & (along > -6) & (along < reach + 6) if soft else np.zeros(L.shape, bool)   # grass, lightened
+    white = (L > gL + 22) & ((chroma < 45) | lightened)
     paint = white & (tophat > 14)
     dist_grass = np.sqrt((L - gL) ** 2 + (a - ga) ** 2 + (b - gb) ** 2)
-    decor = ((dist_grass > 38) & (chroma >= 45) & (L > gL - 10)).astype(np.uint8)
+    decor = ((dist_grass > 38) & (chroma >= 45) & (L > gL - 10) & ~lightened).astype(np.uint8)
     decor = cv2.morphologyEx(decor, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
     thick = cv2.morphologyEx(white.astype(np.uint8), cv2.MORPH_OPEN, ell)
     clutter = cv2.bitwise_or(decor, thick)
@@ -699,8 +715,18 @@ def _rescale_across(cam: Camera, err: float, both: bool, option: list[Line], tic
 
 
 def register(frame: np.ndarray, field_info, boxes: np.ndarray | None = None, max_error: float = 0.35) -> Registration | None:
-    """First lock from a single frame. `field_info` is fieldmask.FieldInfo; boxes are full-frame xyxy."""
-    view = prepare(frame, field_info, boxes, WORK_WIDTH)
+    """First lock from a single frame. `field_info` is fieldmask.FieldInfo; boxes are full-frame xyxy.
+
+    White lines first. If they give no lock, the same again taking light-green lines as
+    paint (`paint_mask`'s `soft`): a night game on vivid turf has hardly any white ones."""
+    reg = _register(frame, field_info, boxes, max_error, soft=False)
+    if reg is None:
+        reg = _register(frame, field_info, boxes, max_error, soft=True)
+    return reg
+
+
+def _register(frame: np.ndarray, field_info, boxes: np.ndarray | None, max_error: float, soft: bool) -> Registration | None:
+    view = prepare(frame, field_info, boxes, WORK_WIDTH, soft=soft)
     if view is None:
         return None
     h, w = view.mask.shape
@@ -782,7 +808,7 @@ def register(frame: np.ndarray, field_info, boxes: np.ndarray | None = None, max
     if not plausible(H, view.rect, boxes, field_info):
         return None
     reg = Registration(H=H, camera=cam, rect=view.rect, residual=err, yard_lines=option, hash_rows=rows,
-                       ticks_between=between, notes=notes)
+                       ticks_between=between, notes=notes, soft=soft)
     return reg
 
 
@@ -814,12 +840,13 @@ def _search_along_normals(mask: np.ndarray, pts: np.ndarray, radius: int) -> tup
 
 
 def refine(camera: Camera, frame: np.ndarray, field_info, rect, boxes: np.ndarray | None = None,
-           guide: np.ndarray | None = None, radius_frac: float = 0.014, img: np.ndarray | None = None) -> tuple[Camera, dict] | None:
+           guide: np.ndarray | None = None, radius_frac: float = 0.014, img: np.ndarray | None = None,
+           soft: bool = False) -> tuple[Camera, dict] | None:
     """Follow the camera: find the paint near where each line should be and refit pan, tilt
     and zoom. `guide` is a full-frame pixel -> yards mapping used to predict where the lines
     are (the last mapping carried along by the camera's motion); default is the camera itself.
     """
-    view = prepare(frame, field_info, boxes, REFINE_WIDTH, rect, img)
+    view = prepare(frame, field_info, boxes, REFINE_WIDTH, rect, img, soft=soft)
     if view is None:
         return None
     h, w = view.mask.shape
@@ -945,6 +972,7 @@ class FieldRegistrar:
         self.camera: Camera | None = None
         self.last: Registration | None = None
         self.rect: tuple[int, int, int, int] | None = None
+        self.soft = False                  # locked on light-green lines rather than white ones
         self.age = 0                       # frames since the paint last confirmed the mapping
         self.frames = 0
         self.full_ok = 0
@@ -1013,7 +1041,7 @@ class FieldRegistrar:
             self.H = guide
             self.age += 1
             if self.frames % self.refine_every == 0 or self._retry:
-                out = refine(self.camera, frame, field_info, self.rect, boxes, guide=guide, img=img)
+                out = refine(self.camera, frame, field_info, self.rect, boxes, guide=guide, img=img, soft=self.soft)
                 self._retry = out is None                       # a miss is retried on the very next frame
                 if out is not None:
                     self.camera, self.info = out
@@ -1033,6 +1061,7 @@ class FieldRegistrar:
                 reg = register(frame, field_info, boxes)
                 if reg is not None:
                     self.H, self.camera, self.last = reg.H, reg.camera, reg
+                    self.soft = reg.soft                        # followed with the paint it was found with
                     self.age = 0
                     self.full_ok += 1
                     self.lock_id += 1                           # a new lock measures x from a new zero
