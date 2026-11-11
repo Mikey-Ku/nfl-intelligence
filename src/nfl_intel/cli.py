@@ -604,6 +604,8 @@ def cmd_truth(args) -> None:
     for name in ("shot", "start", "stop", "out"):
         if getattr(args, name) is not None:
             argv += [f"--{name}", str(getattr(args, name))]
+    if args.whole_shot:
+        argv.append("--whole-shot")
     truth_main(argv)
 
 
@@ -773,7 +775,8 @@ def build_parser() -> argparse.ArgumentParser:
     tu.add_argument("--start", type=float, help="seconds into the clip")
     tu.add_argument("--stop", type=float)
     tu.add_argument("--every", type=float, default=0.5, help="seconds between labelled frames")
-    tu.add_argument("--reach", type=float, default=3.0, help="yards within which a click keeps the previous frame's number")
+    tu.add_argument("--reach", type=float, default=5.0, help="yards from where a man was heading within which a click keeps his number")
+    tu.add_argument("--whole-shot", action="store_true", help="label the whole shot, not just the play (a second before the snap to six after)")
     tu.add_argument("--scale", type=float, default=0.5, help="display scale (4K frames at 0.5 fit a laptop screen)")
     tu.add_argument("--out", help="default data/truth/<clip>.shot<N>.csv")
     tu.set_defaults(func=cmd_truth)

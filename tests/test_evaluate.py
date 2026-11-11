@@ -56,3 +56,43 @@ def test_pixel_fallback_and_files(tmp_path):
     assert r.unit == "px"
     assert math.isclose(r.position_error, 10.0, abs_tol=1e-6)
     assert "recall 100.00%" in str(r)
+
+
+def test_a_steady_offset_is_reported_and_does_not_shuffle_who_is_who():
+    """Men a yard apart, every one of them placed 0.9 yd toward his neighbour. Paired raw, a
+    man is nearer the next man's truth than his own; that must not read as identities
+    changing hands."""
+    truth, pred = [], []
+    for f in range(8):
+        wobble = 0.1 if f % 2 else -0.1                                  # one frame it tips one way, the next the other
+        truth.append(FrameResult(f, f / 2, (1280, 720), [_player(k + 1, 30.0, 20.0 + k) for k in range(6)]))
+        pred.append(FrameResult(f, f / 2, (1280, 720), [_player(50 + k, 30.0, 20.0 + k + 0.9 + (wobble if k % 2 else -wobble)) for k in range(6)]))
+    r = evaluate(pred, truth)
+    assert r.id_switches == 0 and r.matched == 48
+    assert math.isclose(r.offset[1], 0.9, abs_tol=0.11) and abs(r.offset[0]) < 1e-6
+    assert r.position_error > 0.8 and r.spread < 0.2
+    assert "steady offset" in str(r)
+
+
+def test_identity_is_the_slot_when_the_run_has_one():
+    truth = _seq([1, 2])
+    pred = _seq([7, 8])
+    for f, res in enumerate(pred):
+        for k, p in enumerate(res.players):
+            p.track_id = 100 * f + k                                     # the image tracker loses and finds them every frame
+            p.slot = k                                                   # the field tracker keeps them
+    assert evaluate(pred, truth).id_switches == 0
+    for res in pred:
+        for p in res.players:
+            p.slot = None
+    assert evaluate(pred, truth).id_switches == 10
+
+
+def test_the_slot_survives_the_csv(tmp_path):
+    from nfl_intel.schema import read_csv
+
+    pred = _seq([7, 8], frames=2)
+    pred[0].players[0].slot = 4
+    write_csv(tmp_path / "run.csv", pred)
+    back = read_csv(tmp_path / "run.csv")
+    assert back[0].players[0].slot == 4 and back[0].players[1].slot is None

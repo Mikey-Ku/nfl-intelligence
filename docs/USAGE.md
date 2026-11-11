@@ -187,7 +187,9 @@ to move.
     charting: quarterback found, backs, box count, rushers, shotgun.
   - `uv run nfl roles-check --weeks 1-3` marks role assignment on 2,572 real snaps.
   - `uv run nfl eval outputs/play.csv data/truth/play.csv` scores yards error, recall,
-    ID switches and MOTA against a hand-labelled CSV in the same schema.
+    ID switches and MOTA against a hand-labelled CSV in the same schema. The error is given
+    whole and as the spread around its steady offset (the run puts a player at the bottom of
+    his box, a labeller clicks a little higher); ID switches count changes of `slot`.
   - `uv run nfl value-train` retrains the value models and prints the held-out AUC and
     calibration.
 - **The code**: `uv run pytest` runs 158 tests on synthetic frames and tracks; no footage
@@ -204,14 +206,26 @@ uv run nfl eval outputs/live-02.csv data/truth/live-02.shot5.csv          # scor
 ```
 
 A window shows each sampled frame. Click the feet of every player on the field (both
-teams, not officials), `n` for the next frame; `u` undoes a click, `b` shows the run's
-boxes for reference (off by default so they don't lead the eye), `i` renumbers the last
-click (type the number in the window, Enter), `q` quits. The file is written on every move
-between frames and on any exit, and running the same command again picks the play up at its
-first unlabelled frame. Each click becomes yards through the run's own field mapping for that
-frame, so the score measures detection and tracking; the mapping's own accuracy is measured
-separately against the paint. Numbers carry from frame to frame by nearness, so identity
-swaps can be counted. A play of 15 seconds is about 30 frames and 20 minutes of clicking.
+teams, not officials), then `n` for the next frame. With `--shot` and the run's play log
+beside its CSV, the frames run from a second before the snap to six after it, about 15 of
+them and ten minutes of clicking; `--whole-shot` labels the rest too.
+
+| Key | |
+|---|---|
+| click | a player's feet |
+| `n` / `p` | next / previous frame (the file is saved each time) |
+| `u` | undo the last click |
+| `x` | delete the click under the cursor |
+| `i` | renumber the click under the cursor: type the number in the window, Enter (Esc leaves it) |
+| `b` | show the run's boxes for reference (off by default so they don't lead the eye) |
+| `q` | quit; running the same command again picks the play up at its first unlabelled frame |
+
+Each click becomes yards through the run's own field mapping for that frame, so the score
+measures detection and tracking; the mapping's own accuracy is measured separately against
+the paint. Numbers carry from frame to frame so identity swaps can be counted: the whole
+frame is matched at once to where each man was heading, so the order of clicking does not
+matter. A number that is still wrong is fixed with `i`; if another click on the frame has
+the number typed, the two trade.
 
 [STATUS.md](STATUS.md) has the current state of every capability with its measured number.
 
@@ -221,7 +235,7 @@ Every run writes to `outputs/` (gitignored):
 
 | File | Contents |
 |---|---|
-| `<clip>.csv` | one row per player per frame: `frame, t, shot, track_id, team, conf, x1, y1, x2, y2, foot_x_px, foot_y_px, x_yd, y_yd, role, label, anchored`. With `anchored = 1` the yards are on the real field in the Big Data Bowl convention (x 0-120 along the field, offense moving +x; y 0-53.3 across), so anything built on that data runs on ours |
+| `<clip>.csv` | one row per player per frame: `frame, t, shot, track_id, team, conf, x1, y1, x2, y2, foot_x_px, foot_y_px, x_yd, y_yd, role, label, anchored, slot`. `track_id` is the image tracker's number, which changes whenever it loses a man; `slot` is the number the analysis keeps him under through the play. With `anchored = 1` the yards are on the real field in the Big Data Bowl convention (x 0-120 along the field, offense moving +x; y 0-53.3 across), so anything built on that data runs on ours |
 | `<clip>.plays.json` | one entry per play: situation, personnel, formation, who was found and how, the value curve against typical, the closest the rush got, the result |
 | `<clip>.annotated.mp4`, `<clip>.demo.mp4`, `<clip>.shot<N>.topdown.mp4` | with `--save-video`, `--demo`, `--topdown` (one top-down video per anchored play) |
 | `game.parquet` + `game.totals.parquet` | from `nfl game-table` |

@@ -431,3 +431,48 @@ def test_officials_beyond_eleven_a_side_are_left_out():
     roles = assign_roles(s, xy, 0, LOS)
     assert roles[22] == "OFF" and roles[23] == "OFF" and roles[24] == "OFF"
     assert sum(r in ("DEF", "DL") for r in roles.values()) == 11 and roles[0] == "QB"
+
+
+def test_an_unbroken_image_track_keeps_its_slot_when_a_stale_slot_is_nearer():
+    """Two slots end up beside one man (the second from a stray box). Without the image
+    track to say which is his, the detection goes to whichever is nearer that frame."""
+    tr = FieldTracker()
+    for f in range(6):
+        t = f / 20
+        tr.update(t, np.array([[30.0, 20.0], [30.6, 20.0]]), [0, 0], [7, 8])       # both seen, and each has its own track
+    mine = tr.slots[0].id
+    for f in range(6, 30):
+        t = f / 20
+        got = tr.update(t, np.array([[30.45, 20.0]]), [0], [7])                    # one man now, nearer the stale slot
+        assert got[0].id == mine
+    assert FieldTracker(same_track=0.0)                                            # (the switch exists)
+
+
+def test_an_unconfirmed_box_starts_a_player_only_clear_of_everyone():
+    tr = FieldTracker()
+    for f in range(5):
+        tr.update(f / 20, np.array([[30.0, 20.0], [40.0, 25.0]]), [0, 1], [1, 2])
+    n = len(tr.slots)
+    got = tr.update(5 / 20, np.array([[30.0, 20.0], [40.0, 25.0], [30.3, 20.1], [50.0, 10.0]]), [0, 1, 0, 1], [1, 2, None, None],
+                    confirmed=[True, True, False, False])
+    assert got[2] is None and len(tr.slots) == n + 1                             # a second box on a man starts nothing
+    assert got[3] is not None and got[3].born == 5 / 20                           # one well clear of everybody is a new man
+    assert tr.update(5.5 / 20, np.array([[30.0, 20.0], [40.0, 25.0], [31.2, 20.0]]), [0, 1, 0], [1, 2, None],
+                     confirmed=[True, True, False])[2] is None                    # beside a known player: nothing either
+    tr.update(6 / 20, np.array([[40.0, 25.0], [30.1, 20.0]]), [1, 0], [2, None], confirmed=[True, False])
+    assert tr.slots[0].seen == 6 / 20                                             # ...but it does show where a known man is
+
+
+def test_a_second_track_on_the_same_man_takes_over_his_number():
+    tr = FieldTracker()
+    for f in range(8):
+        tr.update(f / 20, np.array([[30.0 + 0.1 * f, 20.0]]), [0], [14])
+    first = tr.slots[0].id
+    tr.slots[0].role = "REC"
+    got = tr.update(8 / 20, np.array([[30.8, 20.0], [31.0, 20.2]]), [0, 0], [14, 37])      # the image tracker starts a second track on him
+    assert got[1].id != first and got[1].twin == first
+    got = tr.update(9 / 20, np.array([[31.1, 20.2]]), [0], [37])                           # and drops the first
+    assert got[0].id == first and got[0].role == "REC"
+    for f in range(10, 20):
+        assert tr.update(f / 20, np.array([[30.0 + 0.1 * f, 20.2]]), [0], [37])[0].id == first
+    assert len(tr.players) == 1
