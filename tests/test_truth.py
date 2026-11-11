@@ -4,8 +4,8 @@ import numpy as np
 
 from nfl_intel.evaluate import evaluate
 from nfl_intel.schema import FrameResult, TrackedPlayer, read_csv, write_csv
-from nfl_intel.truth import (Click, TruthFrame, assign_id, default_out, frame_mapping, mappings_for, sample_frames,
-                             to_results)
+from nfl_intel.truth import (Click, TruthFrame, assign_id, default_out, frame_mapping, mappings_for, resume, sample_frames,
+                             save, to_results, typed)
 
 H = np.array([[0.05, 0.0, 10.0], [0.0, 0.08, 5.0], [0.0, 0.0, 1.0]])       # a plain pixel -> yards mapping
 
@@ -78,3 +78,30 @@ def test_truth_csv_round_trips_and_scores_the_run(tmp_path):
 def test_default_out_names_the_clip_and_shot():
     assert default_out("data/clips/live-02.mp4", 5).as_posix() == "data/truth/live-02.shot5.csv"
     assert default_out("x/live-02.mp4", None).as_posix() == "data/truth/live-02.csv"
+
+
+def test_a_saved_play_is_picked_up_where_it_stopped(tmp_path):
+    out = tmp_path / "truth" / "clip.shot2.csv"
+    truth = [TruthFrame(i * 10, i * 0.5, 2, True) for i in range(4)]
+    assert save(out, truth) == (0, 0) and not out.exists()                  # nothing clicked: no file
+    truth[0].clicks = [Click((100.0, 400.0), (15.0, 37.0), 1), Click((160.0, 430.0), (18.0, 39.4), 2)]
+    truth[1].clicks = [Click((104.0, 400.0), (15.2, 37.0), 1)]
+    assert save(out, truth) == (2, 3)
+    again = [TruthFrame(i * 10, i * 0.5, 2, True) for i in range(4)]
+    assert resume(again, read_csv(out)) == 2                                # the first frame with no clicks
+    assert [(c.pid, c.px, c.yd) for c in again[0].clicks] == [(1, (100.0, 400.0), (15.0, 37.0)), (2, (160.0, 430.0), (18.0, 39.4))]
+    assert len(again[1].clicks) == 1 and not again[2].clicks
+    for tf in again:
+        tf.clicks = tf.clicks or [Click((1.0, 1.0), None, 9)]
+    assert resume(again, []) == 3                                           # all done: stay on the last frame
+
+
+def test_a_number_is_typed_in_the_window():
+    entry = ""
+    for key in (ord("1"), ord("x"), ord("7"), 8, ord("2")):                 # 1, a stray letter, 7, backspace, 2
+        entry, number = typed(entry, key)
+        assert number is None
+    assert entry == "12"
+    assert typed(entry, 13) == (None, 12)                                   # Enter sets it
+    assert typed("12", 27) == (None, None) and typed("", 13) == (None, None)   # Esc, or Enter on nothing, leaves it
+    assert typed("123", ord("4")) == ("123", None)
