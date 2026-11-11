@@ -1,6 +1,6 @@
 # Project status
 
-Last updated 2026-11-09. "Measured" means a number checked against charting, tracking data
+Last updated 2026-11-10. "Measured" means a number checked against charting, tracking data
 or by eye on frames; "by eye" means no ground truth exists yet. [SHOWCASE.md](SHOWCASE.md)
 says where each number comes from; [USAGE.md](USAGE.md#how-to-know-it-is-working) says how
 to see each of these for yourself on a run.
@@ -9,7 +9,7 @@ to see each of these for yourself on a run.
 
 | Capability | Status | Measured | How to check |
 |---|---|---|---|
-| Player detection and tracking | Working, pretrained detector | 17-18 fps on 4K with full analysis; linemen in a pile still merge | `nfl run --shots`, panel's Tracking block |
+| Player detection and tracking | Working; fine-tuned detector available | 17-18 fps on 4K with full analysis; linemen in a pile still merge | `nfl run --shots`, panel's Tracking block |
 | Team split by jersey colour | Working | | overlay colours |
 | Field mapping, sideline angle | Working | 70-100% of frames, 0.03-0.08 yd residual | `--shots` shows the fitted grid on the paint |
 | Field mapping, end-zone angle | Not mapped | long lens defeats the camera model | panel says "read from the sideline view" |
@@ -23,8 +23,8 @@ to see each of these for yourself on a run.
 | Names from looks | Working, by eye only | +0.8 a play at ~85% | `looks` in the play log; `game-table` `known_by` |
 | Throw grade | Experimental | throw moment within 0.6 s only 69% of the time | marked firm only when the rank holds |
 | Game table | Working | 621 player-plays over 42 plays on the test game | `nfl game-table` |
-| Detector fine-tuning | Tooling ready, not run | | `nfl prelabel`, `nfl train` |
-| Officials | Kept out of the eleven by count and position, not by sight | | |
+| Detector fine-tuning | Done once, on 275 corrected frames | players found 80.5% → 91.1% on 55 held-out frames; see below | `nfl prelabel`, `nfl boxes`, `nfl train` |
+| Officials | Dropped by sight with the fine-tuned detector; by count and position with the stock one | boxes on an official 53 → 4 on the held-out frames | |
 
 ## Role assignment in detail
 
@@ -41,11 +41,38 @@ The charting (shotgun or under centre, which hash the ball is on) comes with the
 play. Without it, and with no linemen to show where the ball is, the quarterback is often
 confused with the back beside him; on film the linemen that are found close most of that gap.
 
+## The fine-tuned detector
+
+`nfl train` on 275 hand-corrected frames (5,565 player boxes, 294 referee boxes) from the
+three clips, 220 to train and 55 held out, on 2026-11-10. The weights are in
+`runs/detect/nfl/weights/best.pt` and are passed with `--weights`; the default is still the
+stock `yolo11s.pt`, which is what a fresh clone has.
+
+| 55 held-out frames | stock | fine-tuned |
+|---|---|---|
+| players found | 80.5% | 91.1% |
+| kept boxes that are players | 75.7% | 88.8% |
+| boxes on an official | 53 | 4 |
+
+| the three clips, same code, against the charting | stock | fine-tuned |
+|---|---|---|
+| quarterback named | 39 of 42 | 40 of 42 |
+| passes given a value | 22 of 24 | 23 of 24 |
+| throw found | 8 of 24 | 16 of 24 |
+| backs in the backfield, exact | 15 of 40 | 30 of 41 |
+| defenders in the box, exact | 16 of 42 | 21 of 42 |
+| pass rushers, exact (within one) | 6 (21) of 24 | 11 (23) of 24 |
+| players named by number | 213 | 228 |
+| track identities used (fewer is steadier) | 3,691 | 2,663 |
+
+The held-out frames and the clips are from the same two games the detector trained on, so a
+new game will show less. The third game is the test of that.
+
 ## Where it stands, in one paragraph
 
 Measured on two games, 45 plays, 17 minutes of film. Reading the screen, pinning the field
-and reading the formation are solid. The detector is still the stock COCO model, which is
-where most tracking errors come from. The number that matters most, how far each tracked
+and reading the formation are solid. The detector has been fine-tuned on these two games and
+is untested on any other. The number that matters most, how far each tracked
 player is from where he really stood, has not been measured: the mapping's 0.03-0.08 yd
 residual is the grid against the paint, not a player against the truth, and no hand-labelled
 truth exists yet. So this is a working prototype with its central claim unverified.
@@ -56,9 +83,8 @@ The brief's own success criteria, plus the detector:
 
 1. **Truth on 20 plays.** `nfl truth` labels a play in about 20 minutes; `nfl eval` scores
    it. Target from the brief: about 1 yard mean error, at most 2 identity swaps a play.
-2. **Detector fine-tuned.** 275 frames are pre-labelled in `data/labels/` with the
-   correction notes in `data/LABELLING.txt`; none has been corrected yet. An afternoon of
-   fixes, then `nfl train`. Most of the remaining tracking errors trace to this step.
+2. **Detector fine-tuned.** Done 2026-11-10 on 275 corrected frames; the numbers are
+   above.
 3. **A third game**, not more of the same two: a night game, a team with dark home jerseys,
    a different stadium. Captured with `nfl capture`, run with `nfl run`, marked with
    `nfl plays-check` and the game table, looked at through `--shots`.
@@ -89,7 +115,8 @@ tracker. The throw grade stays rough for that reason.
 - **Run plays** get roles and a formation but no value: the models score passes.
 - **The throw grade** cannot get better than the throw moment, and without tracking the ball
   that is within 0.6 s only 69% of the time.
-- **Officials** are kept out of the eleven by count and position, not recognised by sight.
+- **Officials** are recognised by sight only with the fine-tuned detector; the stock one
+  keeps them out of the eleven by count and position.
 - **Values above 20 expected yards** on 4 of 22 passes are plausible but unverified.
 - Without the play-by-play file, or on the end-zone angle, the panel says what is missing
   instead of guessing.

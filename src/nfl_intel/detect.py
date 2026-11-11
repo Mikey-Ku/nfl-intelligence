@@ -1,8 +1,8 @@
 """Player detection with a pretrained YOLO model.
 
 Out of the box this uses COCO weights and keeps the `person` class, which already finds
-players on film. Fine-tuning on labeled frames (player / referee / ball) swaps in through
-`weights=` with no other change.
+players on film. Weights fine-tuned on the corrected frames (player / referee) swap in
+through `weights=`; then only `player` is kept, so the officials drop out here.
 """
 
 from __future__ import annotations
@@ -23,6 +23,17 @@ def pick_device() -> str:
     return "cpu"
 
 
+def keep_classes(names: dict[int, str]) -> list[int] | None:
+    """The classes that count as players: `person` on COCO weights, `player` on weights
+    fine-tuned here (which also know `referee`, dropped so officials are never tracked).
+    Any other custom weights keep every class."""
+    for wanted in ("player", "person"):
+        found = [i for i, n in names.items() if n == wanted]
+        if found:
+            return found
+    return None
+
+
 class PlayerDetector:
     def __init__(
         self,
@@ -40,8 +51,7 @@ class PlayerDetector:
         self.imgsz = imgsz
         self.tiles = max(1, tiles)
         names = self.model.names
-        # COCO weights: keep only `person`. Custom weights: keep every class.
-        self.classes = [i for i, n in names.items() if n == "person"] or None
+        self.classes = keep_classes(names)
         self._slicer: sv.InferenceSlicer | None = None
         self._slicer_size: tuple[int, int] | None = None
 

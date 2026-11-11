@@ -112,7 +112,7 @@ those rows, so anything built on the Big Data Bowl layout can read it.
 | Path | What it is |
 |---|---|
 | `scripts/make_showcase.py` | Builds the two showcase videos from chosen plays with captions. |
-| `tests/` | 173 tests, synthetic data only, no footage. `formations.py` is the shared synthetic play (a shotgun formation and a film of it); `conftest.py` runs Qt offscreen. Each `test_*.py` matches a module or a stage. |
+| `tests/` | 176 tests, synthetic data only, no footage. `formations.py` is the shared synthetic play (a shotgun formation and a film of it); `conftest.py` runs Qt offscreen. Each `test_*.py` matches a module or a stage. |
 | `README.md` | The front page: what it does, what it looks like, quick start. |
 | `docs/USAGE.md` | Every command and flag, output files, training, how to know it is working. |
 | `docs/STATUS.md` | Where each capability stands, with its measured number, what is next, known limits. |
