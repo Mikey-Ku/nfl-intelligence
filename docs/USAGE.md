@@ -142,7 +142,7 @@ All through `uv run nfl <command>`; `--help` on any of them lists the flags.
 | | `roles-check --weeks 1-3` | mark role assignment against real Big Data Bowl snaps |
 | | `truth VIDEO CSV --shot N` | click where each player stands, every half second: hand-labelled truth for a play |
 | | `eval PRED TRUTH` | score a tracking CSV against that truth: yards error, recall, ID switches, MOTA |
-| Train | `prelabel CLIPS...` / `train` | keyframes with detector boxes to correct, then a two-stage YOLO fine-tune |
+| Train | `prelabel CLIPS...` / `boxes` / `train` | keyframes with the detector's boxes, a window to correct them, then a two-stage YOLO fine-tune |
 | | `value-train` / `value-baseline` | the pass value models and their typical-play curves |
 | | `coverage-train` | man/zone and coverage shell from defender movement |
 | | `value-demo --week 16` | replay held-out Big Data Bowl plays top-down with the live panel |
@@ -234,7 +234,7 @@ Every model starts pretrained and is fine-tuned; nothing is trained from scratch
 
 | Model | Trained on | Command | Lands in |
 |---|---|---|---|
-| Detector (YOLO) | corrected keyframes from our clips | `nfl prelabel data/clips/*.mp4 --every 30`, fix the boxes in X-AnyLabeling, `nfl train --epochs 40` | `runs/detect/nfl/weights/best.pt` |
+| Detector (YOLO) | corrected keyframes from our clips | `nfl prelabel data/clips/*.mp4 --every 30`, then `nfl boxes` to fix them (drag to draw, click to select, `d` delete, `r` player/referee, `z` zoom, `n` next; split piles into one box per man, box the missed quarterback, delete crowd boxes), then `nfl train --epochs 40` (about 45 minutes on an M5) | `runs/detect/nfl/weights/best.pt`; pass it with `--weights`, and only the `player` class is kept, so officials drop out |
 | Pass value (catch + yards) | Big Data Bowl 2026 tracking, nflverse outcomes; weeks 1-14 train, 15-18 test | `nfl value-train` (about a minute), `nfl value-baseline` | `models/pass_value.pkl` |
 | Coverage (man/zone, shell) | Big Data Bowl + nflverse participation | `nfl coverage-train` | `models/coverage.pkl` |
 | Jersey-number reader | torso crops from our film with per-track labels, plus synthetic numbers; crops marked readable or not by hand (`python -m nfl_intel.jersey_mark data/jersey --kind dark`, a page of one track's crops at a time, click green for readable and red for nothing to read) | `python -m nfl_intel.jersey_train data/jersey --out models/jersey.pt` | `models/jersey.pt` |
