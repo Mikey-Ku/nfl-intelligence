@@ -206,7 +206,9 @@ uv run nfl eval outputs/live-02.csv data/truth/live-02.shot5.csv          # scor
 A window shows each sampled frame. Click the feet of every player on the field (both
 teams, not officials), `n` for the next frame; `u` undoes a click, `b` shows the run's
 boxes for reference (off by default so they don't lead the eye), `i` renumbers the last
-click, `q` saves. Each click becomes yards through the run's own field mapping for that
+click (type the number in the window, Enter), `q` quits. The file is written on every move
+between frames and on any exit, and running the same command again picks the play up at its
+first unlabelled frame. Each click becomes yards through the run's own field mapping for that
 frame, so the score measures detection and tracking; the mapping's own accuracy is measured
 separately against the paint. Numbers carry from frame to frame by nearness, so identity
 swaps can be counted. A play of 15 seconds is about 30 frames and 20 minutes of clicking.
