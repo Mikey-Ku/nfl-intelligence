@@ -85,3 +85,40 @@ def test_the_newest_season_on_disk_is_assumed_when_the_screen_does_not_say(tmp_p
     rec = match_play(h, root=tmp_path)
     assert rec.matched and h.season == 2026 and rec.play_id == 100
     _TABLES.clear()
+
+
+def test_the_newer_header_is_one_line_without_the_offense():
+    h = parse_header(["Game: JAX at BAL", "Week: 9", "1st & 10", "2ND & 6 BAL 17", "Q 1 12:44", "15:00",
+                      "(12:44) (Shotgun) T.Lawrence pass short left to J.Meyers."])
+    assert (h.quarter, h.clock, h.down, h.distance, h.side, h.yard) == (1, "12:44", 2, 6, "BAL", 17)
+    assert h.offense is None and h.placed and not h.complete and h.game == ("JAX", "BAL")
+    mid = parse_header(["1ST & 10 50", "Q3 09:00"])
+    assert (mid.side, mid.yard, mid.down) == (None, 50, 1)
+    goal = parse_header(["3RD & GOAL JAX 2", "Q4 01:10"])
+    assert (goal.down, goal.distance, goal.side, goal.yard) == (3, None, "JAX", 2)
+
+
+def test_the_play_by_play_says_whose_ball_it_is(tmp_path):
+    h = PlayHeader(quarter=4, clock="08:21", down=2, distance=7, side="ATL", yard=15, game=("ATL", "GB"), week=3)
+    rec = match_play(h, _table(), root=tmp_path)
+    assert rec.matched and rec.play_id == 100 and h.offense == "GB" and rec.yards_to_goal == 15
+    # two plays at that clock and no yard line to choose by: nobody is named
+    vague = PlayHeader(quarter=4, clock="08:21", down=2, distance=7, side="NYJ", yard=1, game=("ATL", "GB"), week=3)
+    assert not match_play(vague, _table(), root=tmp_path).matched and vague.offense is None
+    # and without the game on screen there is nothing to go on
+    assert not match_play(PlayHeader(quarter=4, clock="08:21", side="ATL", yard=15), _table(), root=tmp_path).matched
+
+
+def test_boxes_on_one_line_are_one_row():
+    from dataclasses import dataclass
+
+    from nfl_intel.playinfo import text_rows
+
+    @dataclass
+    class Box:
+        text: str
+        box: tuple
+
+    rows = text_rows([Box("05:12", (120, 40, 180, 60)), Box("2ND & 5 BAL", (20, 10, 200, 30)), Box("Q 1", (70, 41, 110, 61)), Box("43", (210, 11, 240, 31))])
+    assert rows == ["2ND & 5 BAL 43", "Q 1 05:12"]
+    assert parse_header(rows).key == (1, "05:12", 2, 5, None, "BAL", 43)
