@@ -7,7 +7,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">
   <img src="https://img.shields.io/badge/built%20on-Apple%20silicon-000000?logo=apple&logoColor=white" alt="Built on Apple silicon">
-  <img src="https://img.shields.io/badge/tests-201%20passing-2ea44f" alt="201 tests">
+  <img src="https://img.shields.io/badge/tests-202%20passing-2ea44f" alt="202 tests">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
 </p>
 
@@ -15,7 +15,7 @@
   <img src="docs/media/film.gif" width="880" alt="The film with the fitted yard grid, boxes and names on the left; the same moment drawn top-down in yards on the right">
 </p>
 
-<p align="center"><sub>Left, the film as the pipeline sees it: the fitted yard grid, a box on each player and his name. Right, the same moment drawn top-down in yards, with the best throw and its expected yards. Browns 2nd and 10, eight seconds from the snap.</sub></p>
+<p align="center"><sub>Left, the film as the pipeline sees it: the fitted yard grid, a box on each player and his name. Right, the same moment drawn top-down in yards, with the best throw and its expected yards. Browns 2nd and 10, eight seconds from just before the snap.</sub></p>
 
 ---
 
@@ -80,7 +80,7 @@ what holds up and what does not.
   </tr>
   <tr>
     <td><sub>Before the snap. The play has been read off the screen and matched to the play-by-play, the field anchored from the painted numbers, and the formation and personnel are on the panel.</sub></td>
-    <td><sub>Mid-play. Expected yards of the best throw, the plus/minus against a typical play from the same part of the field, who is open, the nearest rusher, and how the tracking is holding up.</sub></td>
+    <td><sub>Mid-play. Expected yards of the best throw, the plus/minus against a typical play from the same part of the field, the biggest swings so far with the moment and the reason, the eleven on each side, who is open and the nearest rusher.</sub></td>
   </tr>
 </table>
 

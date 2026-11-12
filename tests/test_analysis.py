@@ -339,3 +339,22 @@ def test_team_counts_are_the_named_eleven_and_officials_are_on_neither_side():
     view.last = Analysis(anchor=SimpleNamespace(offense_team=1), snap_t=3.0,
                          players=seen + back + [man("OFF")], unseen=lost)
     assert view.team_counts() == (11, 11, 2)                                    # defense, offense, the official and the unknown
+
+
+def test_a_twelfth_man_after_the_snap_gets_no_box():
+    from types import SimpleNamespace
+
+    from nfl_intel.schema import TrackedPlayer
+
+    def man(role, team, y=20.0):
+        return TrackedPlayer(0, team, (0.0, 0.0, 1.0, 1.0), 0.9, (0.0, 0.0), (50.0, y), role=role)
+
+    offense = [man("QB", 1)] + [man("REC", 1)] * 5 + [man("OL", 1)] * 5
+    defense = [man("DEF", 0)] * 7 + [man("DL", 0)] * 3                          # ten in sight, none carried: one is missing
+    official, found_again = man(None, 0, y=0.4), man(None, 0, y=18.0)           # both in white; one stands on the sideline
+    twelfth = man(None, 1)
+    out = SimpleNamespace(players=offense + defense + [official, found_again, twelfth], loose=[], unseen=[])
+    PlayAnalyzer._eleven_a_side(None, out)
+    assert (found_again.role, found_again.team) == (None, 0)                    # the defense had room for one, and he is in the field
+    assert (official.role, official.team) == ("OFF", None)
+    assert (twelfth.role, twelfth.team) == ("OFF", None)                        # the offense already has its eleven

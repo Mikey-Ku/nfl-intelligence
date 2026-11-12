@@ -46,7 +46,7 @@ class StatsSnapshot:
     field_bbox: tuple[int, int, int, int] | None = None
     value_unit: str = "%"                          # "%" (value is 0..1) or "yd"
     team_names: tuple[str, str, str] = ("Dark jerseys", "Light jerseys", "Unassigned")
-    on_field_note: str = "of 22 players + officials"
+    on_field_note: str = "of 22 players"
     delta_note: str = "since the snap"
     value_note: str = ""                           # why there is no value, when the caller knows
     clock_text: str = ""                           # the caller's own clock ("snap +1.2s"), shown instead of the play clock
@@ -66,7 +66,7 @@ class LiveStats:
         min_swing: float | None = None,
         explain_fn: Callable[[float, float], str] | None = None,
         team_names: tuple[str, str, str] = ("Dark jerseys", "Light jerseys", "Unassigned"),
-        on_field_note: str = "of 22 players + officials",
+        on_field_note: str = "of 22 players",
         baseline_fn: Callable[[float], float] | None = None,
         value_clock_fn: Callable[[], float | None] | None = None,
         value_note_fn: Callable[[], str] | None = None,
@@ -184,7 +184,8 @@ class LiveStats:
         named = self.team_counts_fn() if self.team_counts_fn is not None else None
         a, b, other = named if named is not None else teams
         teams = (min(a, PER_SIDE), min(b, PER_SIDE), other + max(0, a - PER_SIDE) + max(0, b - PER_SIDE))   # a twelfth man is somebody else
-        on_field = sum(teams) if named is not None else len(players)
+        # the two sides; officials and anyone unplaced are the third row, not players
+        on_field = teams[0] + teams[1] or min(len(players), 2 * PER_SIDE)      # before the jerseys are told apart, everyone in sight
         calibrated = bool(players) and all(p.field_yd is not None for p in players)
         clock = max(0.0, t - self._play_start) if self._in_play else 0.0
 

@@ -31,7 +31,7 @@ from .personnel import BACKFIELD, BACKS, D_LINE, LINEBACKERS, LINEMEN, name_play
 from .playinfo import PlayRecord, match_play, read_screen
 from .roles import assign_roles, describe_look, lined_up, update_roles
 from .schema import FrameResult, TrackedPlayer
-from .stats import LiveStats
+from .stats import PER_SIDE, LiveStats
 from .value import PassValueModel, ReceiverScore, play_value, receiver_features, what_changed
 
 LIVE_FOR = 4.5                # seconds after the snap that "best throw available" still means something
@@ -524,6 +524,21 @@ class PlayAnalyzer(AnalysisView):
         for sid, name in name_players(rec.on_field, found, ball, rec.receiver if rec.matched else "", rec.pass_location if rec.matched else "").items():
             self.labels[sid] = name
 
+    def _eleven_a_side(self, out) -> None:
+        """After the snap a man nobody has named is a player only while his side is short of
+        eleven; the men well inside the field are taken first. Anyone left over is the official
+        on the sideline or a second box on a player already counted, and gets no box."""
+        room = {0: PER_SIDE, 1: PER_SIDE}
+        for p in out.players + out.loose + out.unseen:
+            if p.role not in (None, "OFF") and p.team in room:
+                room[p.team] -= 1
+        strangers = [p for p in out.players if p.role is None]
+        for p in sorted(strangers, key=lambda p: -min(p.field_yd[1], FIELD_WIDTH - p.field_yd[1])):
+            if p.team in room and room[p.team] > 0:
+                room[p.team] -= 1
+            else:
+                p.role, p.team = "OFF", None
+
     def _reclaim(self, t: float) -> None:
         """Players the tracker lost and found again come back as strangers. Give each stranger
         the name of the missing player he most likely is; a stranger on the defense's side
@@ -774,6 +789,8 @@ class PlayAnalyzer(AnalysisView):
                         track_id=-1 - s.id, team=side, box=(0.0, 0.0, 0.0, 0.0), conf=0.0, foot_px=(0.0, 0.0),
                         field_yd=(float(q[0]), float(q[1])), role=self.roles[s.id], label=self.labels.get(s.id),
                     ))
+            if self.roles:
+                self._eleven_a_side(out)
         passing = self._passing
         if self.snap_t is not None and self.anchor is not None and self.roles:
             since = result.t - self.snap_t

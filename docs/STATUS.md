@@ -24,7 +24,7 @@ to see each of these for yourself on a run.
 | Throw grade | Experimental | throw moment within 0.6 s only 69% of the time | marked firm only when the rank holds |
 | Game table | Working | 621 player-plays over 42 plays on the test game | `nfl game-table` |
 | Detector fine-tuning | Done once, on 275 corrected frames | players found 80.5% → 91.1% on 55 held-out frames; see below | `nfl prelabel`, `nfl boxes`, `nfl train` |
-| Officials and the bench | Officials dropped by sight with the fine-tuned detector, by count and position with the stock one, and given no box or team either way; the bench kept out by the border measured in yards | boxes on an official 53 → 4 on the held-out frames; a side on the panel is never more than eleven | |
+| Officials and the bench | Officials dropped by sight with the fine-tuned detector, by count and position with the stock one, and given no box or team either way; the bench kept out by the border measured in yards | boxes on an official 53 → 4 on the held-out frames; a side is never more than eleven, on the panel or in boxes: after the snap a man nobody has named is boxed only while his side is short of eleven, so the official on the sideline is not; the panel's headline counts the two sides only | |
 
 ## Role assignment in detail
 
