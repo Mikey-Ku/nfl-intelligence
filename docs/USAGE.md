@@ -186,6 +186,10 @@ to move.
   from where, `value` the curve and `peak` its high point. A play with `"matched": false` or
   no `snap` is one the pipeline gave up on, on purpose: it says what is missing rather than
   guessing.
+- **`kits` in the play log**: `read_s` is how many player-seconds a named player's box
+  showed a clear kit after the snap, `other_side_s` how many of those showed the other
+  team's. That second number is identities sitting on the wrong man, measured with no labels:
+  it runs at about 0.3 a play, and a play well above that is worth watching with `--shots`.
 - **Against the truth**:
   - `uv run nfl plays-check outputs/*.plays.json` marks every play log against FTN's
     charting: quarterback found, backs, box count, rushers, shotgun.
@@ -196,7 +200,7 @@ to move.
     his box, a labeller clicks a little higher); ID switches count changes of `slot`.
   - `uv run nfl value-train` retrains the value models and prints the held-out AUC and
     calibration.
-- **The code**: `uv run pytest` runs 204 tests on synthetic frames and tracks; no footage
+- **The code**: `uv run pytest` runs 210 tests on synthetic frames and tracks; no footage
   is needed or used.
 
 ### Hand-labelling a play

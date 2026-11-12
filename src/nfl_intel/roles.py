@@ -50,14 +50,20 @@ def line_chain(y: np.ndarray, gap: float = 2.3) -> list[list[int]]:
     return chains
 
 
-def sides(slots: list[Slot], xy: np.ndarray, offense_team: int, los: float) -> tuple[list[int], list[int]]:
+def sides(slots: list[Slot], xy: np.ndarray, offense_team: int, los: float,
+          doubtful: set[int] | None = None) -> tuple[list[int], list[int]]:
     """Indices of the offense and of the defense, by which side of the ball they stand on.
 
     Each side has eleven men. Anyone beyond that is an official or a stray from the bench,
     and the ones that look least like players are the ones left out: on offense whoever is
     deepest behind the ball (the referee stands well behind the passer), on defense whoever
-    is deepest or widest (the back judge, the sideline officials).
+    is deepest or widest (the back judge, the sideline officials). A twelfth man standing
+    among the eleven is most often the tracker's second slot on one of them: a slot the
+    caller has not seen lately (`doubtful`, ids) goes before a man in plain sight, and of
+    two in plain sight the one tracked for less time goes first.
     """
+    doubt = doubtful or set()
+    most = max((s.hits for s in slots), default=1)
     off, dfn = [], []
     for i, s in enumerate(slots):
         d, y = xy[i, 0] - los, xy[i, 1]
@@ -71,9 +77,14 @@ def sides(slots: list[Slot], xy: np.ndarray, offense_team: int, los: float) -> t
             (off if s.team == offense_team else dfn).append(i)
     if off or dfn:
         mid = float(np.median(xy[off + dfn, 1]))
-        off = _eleven(off, lambda i: max(0.0, -(xy[i, 0] - los) - 8.0) + max(0.0, abs(xy[i, 1] - mid) - 24.0))
-        dfn = _eleven(dfn, lambda i: max(0.0, (xy[i, 0] - los) - 16.0) + max(0.0, abs(xy[i, 1] - mid) - 24.0))
+        unseen = lambda i: (DOUBTFUL if slots[i].id in doubt else 0.0) + NEWCOMER * (1.0 - slots[i].hits / most)
+        off = _eleven(off, lambda i: max(0.0, -(xy[i, 0] - los) - 8.0) + max(0.0, abs(xy[i, 1] - mid) - 24.0) + unseen(i))
+        dfn = _eleven(dfn, lambda i: max(0.0, (xy[i, 0] - los) - 16.0) + max(0.0, abs(xy[i, 1] - mid) - 24.0) + unseen(i))
     return off, dfn
+
+
+DOUBTFUL = 4.0          # yards of oddness a slot nobody has seen lately starts with
+NEWCOMER = 1.0          # ...and what a slot only just started carries; one tracked as long as anyone carries none
 
 
 def _eleven(side: list[int], oddness) -> list[int]:
@@ -154,7 +165,7 @@ def find_quarterback(xy: np.ndarray, off: list[int], los: float, ball: float, sh
 
 def assign_roles(slots: list[Slot], xy_abs: np.ndarray, offense_team: int, los: float,
                  shotgun: bool | None = None, hash_mark: str | None = None, linemen: int | None = None,
-                 eligible: int | None = None) -> dict[int, str]:
+                 eligible: int | None = None, doubtful: set[int] | None = None) -> dict[int, str]:
     """Roles by slot id. `xy_abs` are the slots' positions, offense moving +x.
 
     `shotgun` and `hash_mark` ("L", "M", "R" from the offense's side) come from the play's
@@ -162,7 +173,7 @@ def assign_roles(slots: list[Slot], xy_abs: np.ndarray, offense_team: int, los: 
     field) from the on-field list. Without them the formation alone decides."""
     xy = np.asarray(xy_abs, dtype=np.float64).reshape(-1, 2)
     roles: dict[int, str] = {s.id: "OFF" for s in slots}
-    off, dfn = sides(slots, xy, offense_team, los)
+    off, dfn = sides(slots, xy, offense_team, los, doubtful)
     if len(off) < 4 or len(dfn) < 4:
         return roles
     ball = ball_spot(xy, off, dfn, los, hash_mark)

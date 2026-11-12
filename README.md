@@ -7,7 +7,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">
   <img src="https://img.shields.io/badge/built%20on-Apple%20silicon-000000?logo=apple&logoColor=white" alt="Built on Apple silicon">
-  <img src="https://img.shields.io/badge/tests-204%20passing-2ea44f" alt="204 tests">
+  <img src="https://img.shields.io/badge/tests-210%20passing-2ea44f" alt="210 tests">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
 </p>
 
@@ -60,7 +60,7 @@ what holds up and what does not.
   <tr>
     <td align="center"><h3>0.89 yd</h3>between a tracked player and the same player clicked by hand, on five plays</td>
     <td align="center"><h3>90%</h3>of 1,531 hand-labelled player positions found</td>
-    <td align="center"><h3>28 a play</h3>identity changes, against a target of 2: the open problem</td>
+    <td align="center"><h3>22 a play</h3>identity changes counted against the labels, target 2; none of them now a player followed onto the other team</td>
   </tr>
 </table>
 
@@ -151,8 +151,10 @@ the number reader has seen almost only light jerseys.
   error in the mapping. One got past it: the field was mapped a tenth too narrow until the
   sidelines were measured directly. They now land within 0.4 yd; the hash marks and the
   sidelines are still each 0.2 to 0.35 yd off, because one camera has to fit both.
-- A player does not keep one identity through a pile: 22 to 42 changes a play on the five
-  labelled plays, against a target of 2.
+- Teammates in a pile still trade identities. A player is no longer followed onto a man of
+  the other team (the line-up before the snap teaches a classifier the two kits), which took
+  the count on the five labelled plays from 28 a play to 22, against a target of 2. Part of
+  what is left is the labels, which trade players in a pile themselves.
 - The end-zone camera angle is not mapped; the sideline read is replayed over it.
 - The throw cannot be timed without tracking the ball, so the throw grade is rough.
 - Broadcast film and other players are not supported: the play is read from NFL Pro's
