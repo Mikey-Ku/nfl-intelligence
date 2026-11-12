@@ -573,7 +573,9 @@ class PlayAnalyzer(AnalysisView):
         if listed is not None:
             for sid, label in self.labels.items():
                 roster = listed.offense if side.get(sid) == "offense" else listed.defense if sid in side else []
-                named.update((side[sid], p.number) for p in roster if p.last_name == label)
+                same = [p for p in roster if p.last_name == label]
+                if len(same) == 1:                                  # two Williamses on one side: the label alone doesn't say which
+                    named.add((side[sid], same[0].number))
             passers = [p for p in listed.offense if p.position == "QB"]
             if len(passers) == 1 and "QB" in self.roles.values():          # one quarterback listed and one found: that is him
                 named.add(("offense", passers[0].number))
