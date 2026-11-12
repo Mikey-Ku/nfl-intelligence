@@ -31,13 +31,18 @@ live on a MacBook.
 <table>
   <tr>
     <td align="center"><h3>17-18 fps</h3>4K capture with full analysis, Apple M5</td>
-    <td align="center"><h3>45 / 45</h3>plays identified from the screen and matched to the play-by-play</td>
-    <td align="center"><h3>36 / 40</h3>plays anchored to real yard lines by reading the painted numbers</td>
+    <td align="center"><h3>78 / 78</h3>runs and passes on three games identified from the screen and matched to the play-by-play</td>
+    <td align="center"><h3>57 / 66</h3>plays anchored to real yard lines by reading the painted numbers</td>
   </tr>
   <tr>
-    <td align="center"><h3>39 / 42</h3>quarterbacks picked out at the snap, checked against official charting</td>
+    <td align="center"><h3>65 / 66</h3>quarterbacks picked out at the snap, checked against official charting</td>
     <td align="center"><h3>36 / 36</h3>jersey numbers read right on held-out plays, checked by eye</td>
     <td align="center"><h3>AUC 0.76</h3>catch model on held-out weeks, calibrated within 3 points</td>
+  </tr>
+  <tr>
+    <td align="center"><h3>0.82 yd</h3>from where a player really stood, on five plays labelled by hand</td>
+    <td align="center"><h3>90%</h3>of 1,531 hand-labelled player positions found</td>
+    <td align="center"><h3>28 a play</h3>identity changes, against a target of 2: the open problem</td>
   </tr>
 </table>
 

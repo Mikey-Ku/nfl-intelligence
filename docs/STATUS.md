@@ -167,24 +167,29 @@ seen. Identities do not hold: 20 to 43 changes a play against a target of 2. So 
 working prototype whose position claim holds on a small sample and whose identity claim
 does not hold yet.
 
-## The bar for a first release
+## The bar for a first release: closed 2026-11-11
 
 The brief's own success criteria, plus the detector:
 
-1. **Truth on 20 plays.** Five labelled so far. `nfl truth` labels a play in about ten
-   minutes; `nfl eval` scores it. Target from the brief: about 1 yard mean error, at most 2
-   identity swaps a play. The first is met on all five; the second on none, and that is
-   tracker work, not labelling.
+1. **Truth on hand-labelled plays.** The bar was 20 plays; it was closed at five. Target
+   from the brief: about 1 yard mean error, at most 2 identity swaps a play. The first is
+   met on all five, with too little spread between plays for fifteen more to move it. The
+   second is met on none, and that is tracker work, not labelling.
 2. **Detector fine-tuned.** Done 2026-11-10 on 275 corrected frames; the numbers are
    above.
 3. **A third game.** Done 2026-11-11: a night game, dark home jerseys, another stadium.
    What broke and the numbers are above.
 
-With those three the README gets a "within X yd on 20 labelled plays" tile and the word
-"prototype" can go.
+The README carries the result as tiles: 0.82 yd on five labelled plays, and the identity
+changes beside it. The word "prototype" stays, because the identity target is not met.
+Measuring is finished; what would lift the project from here is in the next section.
 
 ## After that
 
+- Identity through the pile: a player keeping one number from the snap to the whistle.
+  Tuning the field tracker's gates and smoothing moved nothing, so this needs a different
+  approach (the jersey numbers and looks used inside a play, not only between plays). The
+  five labelled plays are the test for it.
 - Crop-level "readable" labels for dark jerseys (a few hundred crops) so the number reader
   learns them; today it names almost only light shirts.
 - Ground truth for the looks, so the 85% stops being an eye estimate.
