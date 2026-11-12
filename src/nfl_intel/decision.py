@@ -30,6 +30,8 @@ EARLIEST, LATEST = 0.6, 7.0   # seconds after the snap a pass can be in the air
 HOLD = ((0.0, 2.5), (5.0, 2.2), (10.0, 2.3), (15.0, 2.7), (20.0, 3.0), (30.0, 2.8), (1e9, 3.2))
 DEPTH_SLACK = 1.5             # yards: "at the ball's depth" means within this of his closest approach
 UNSURE = 0.5                  # seconds either side of the estimate that the grade is re-run at
+TO_A_SIDE = 2.0               # yards: a pass charted left or right went at least this far that side of the ball
+IN_THE_MIDDLE = 8.0           # yards either side of the ball that a pass charted to the middle can be
 
 
 def typical_hold(air_yards: float) -> float:
@@ -150,11 +152,11 @@ def find_target(paths: dict[str, dict], los: float, ball_y: float, air_yards: fl
         off = np.abs(xy[:, 0] - los - air_yards)
         side = xy[:, 1] - ball_y
         if pass_location == "left":
-            off = off + np.clip(2.0 - side, 0, None)
+            off = off + np.clip(TO_A_SIDE - side, 0, None)
         elif pass_location == "right":
-            off = off + np.clip(2.0 + side, 0, None)
+            off = off + np.clip(TO_A_SIDE + side, 0, None)
         elif pass_location == "middle":
-            off = off + np.clip(np.abs(side) - 8.0, 0, None)
+            off = off + np.clip(np.abs(side) - IN_THE_MIDDLE, 0, None)
         there = off <= off.min() + DEPTH_SLACK
         hold = typical_hold(air_yards)
         flight = RELEASE + np.hypot(xy[:, 0] - (los - 5.0), xy[:, 1] - ball_y) / BALL_SPEED     # the passer is about five yards deep
