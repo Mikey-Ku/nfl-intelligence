@@ -31,7 +31,7 @@ from .personnel import BACKFIELD, BACKS, D_LINE, LINEBACKERS, LINEMEN, name_play
 from .playinfo import PlayRecord, match_play, read_screen
 from .roles import assign_roles, describe_look, lined_up, update_roles
 from .schema import FrameResult, TrackedPlayer
-from .stats import PER_SIDE, LiveStats
+from .stats import PER_SIDE, LiveStats, PanelSection
 from .value import PassValueModel, ReceiverScore, play_value, receiver_features, what_changed
 
 LIVE_FOR = 4.5                # seconds after the snap that "best throw available" still means something
@@ -42,6 +42,28 @@ OFFENSE_ROLES = ("QB", "REC", "OL")
 DEFENSE_ROLES = ("DEF", "DL")
 ROLE_POSITIONS = {"QB": {"QB"}, "REC": BACKS | {"WR", "TE"}, "OL": LINEMEN | {""},      # which roster positions a role can be
                   "DL": D_LINE | {"OLB"}, "DEF": BACKFIELD | LINEBACKERS}
+# how the panel lists who is out there: each inner list is one line of position groups
+OFFENSE_LINES = [[("QB", {"QB"}), ("RB", BACKS), ("TE", {"TE"})], [("WR", {"WR"})], [("OL", LINEMEN | {""})]]
+DEFENSE_LINES = [[("DL", D_LINE)], [("LB", LINEBACKERS)], [("DB", BACKFIELD)]]
+
+
+def roster_lines(side: list, lines: list, named: set[int]) -> list:
+    """The on-screen list of one side as the panel shows it: by position group, each player
+    marked if the film has put his name on somebody."""
+    out, placed = [], set()
+    for line in lines:
+        groups = []
+        for label, positions in line:
+            who = [p for p in side if p.position in positions]
+            placed.update(id(p) for p in who)
+            if who:
+                groups.append((label, [(p.last_name, p.number in named) for p in who]))
+        if groups:
+            out.append(groups)
+    rest = [p for p in side if id(p) not in placed]              # a position the list's small print didn't give up
+    if rest:
+        out.append([("", [(p.last_name, p.number in named) for p in rest])])
+    return out
 
 
 @dataclass
@@ -66,6 +88,7 @@ class Analysis:
     loose: list[TrackedPlayer] = field(default_factory=list)        # seen this frame, not yet confirmed by the image tracker
     throw: object = None                     # decision.ThrowGrade once the ball has been thrown and the throw graded
     notes: list[str] = field(default_factory=list)
+    named: set[tuple[str, int]] = field(default_factory=set)        # ("offense", 4): listed players the film has found, by number or look
 
 
 @dataclass
@@ -173,42 +196,59 @@ class AnalysisView:
         vb = max((s.expected_yards for s in b.values()), default=0.0)
         return what_changed(a, b, vb >= va)
 
-    def rows(self, _result=None) -> list[tuple[str, str]]:
+    def headline(self) -> str:
+        rec = self.last.record
+        return rec.summary if rec is not None and rec.header.complete else ""
+
+    def sections(self) -> list[PanelSection]:
+        """The panel's blocks: the offense, the defense, and what the play came to. Each side
+        has its formation or look, its grouping, what it is doing now, and who is out there."""
         a = self.last
-        rows: list[tuple[str, str]] = []
-        if a.record is not None and a.record.header.complete:
-            rows.append(("Play", a.record.summary))
-        if a.anchor is None and not a.replayed:
-            return rows
-        over = a.since_snap is not None and a.since_snap > LIVE_FOR
-        if a.scores and not over:
-            best = a.best
-            most_open = max(a.scores, key=lambda s: s.separation)
-            rows.append(("Best throw", f"{best.label}  {best.p_catch:.0%} caught, {best.yards_if_caught:.0f} yd"))
-            rows.append(("Most open", f"{most_open.label}  {most_open.separation:.1f} yd"))
-            if a.rush is not None:
-                rows.append(("Nearest rusher", f"{a.rush[0]:.1f} yd" + (", closing" if a.rush[1] > 1.0 else "")))
-        listed = a.record.on_field if a.record is not None else None
-        before = a.since_snap is None or a.since_snap < 0
-        if a.replayed:
-            rows.append(("Read from", "the sideline view"))
-        if a.look[0]:
-            rows.append(("Offense", a.look[0]))
-        if listed is not None and listed.personnel and (before or over):
-            rows.append(("Personnel", listed.personnel.split(":")[0] + " v " + listed.package.split(",")[0].lower()))
-        if a.coverage and a.since_snap is not None and a.since_snap >= 0:
-            rows.append(("Coverage read", a.coverage))
-        elif a.look[1]:
-            rows.append(("Defense", a.look[1]))
-        if a.throw is not None:
-            t = a.throw
-            rank = f"option {t.rank}" if t.firm else f"option {t.ranks[0]}-{t.ranks[1]}"
-            rows.append(("Threw to", f"{t.target}, {rank} of {len(t.options)}"))
-        if over and a.record is not None and a.record.matched:
-            rows.append(("Result", a.record.outcome))
-            if a.record.charted_look:
-                rows.append(("Charted", a.record.charted_look))
-        return rows
+        rec = a.record
+        listed = rec.on_field if rec is not None else None
+        has_ball = a.anchor.offense_team if a.anchor is not None else a.offense_team
+        offense = PanelSection(f"{rec.header.offense} offense" if rec is not None and rec.header.offense else "Offense", has_ball)
+        defense = PanelSection(f"{rec.defense} defense" if rec is not None and rec.defense else "Defense",
+                               None if has_ball is None else 1 - has_ball)
+        play = PanelSection("This play")
+        if listed is not None:
+            if listed.personnel:
+                offense.rows.append(("Personnel", listed.personnel))
+            if listed.package:
+                defense.rows.append(("Package", listed.package))
+            offense.roster = roster_lines(listed.offense, OFFENSE_LINES, {n for side, n in a.named if side == "offense"})
+            defense.roster = roster_lines(listed.defense, DEFENSE_LINES, {n for side, n in a.named if side == "defense"})
+        if a.anchor is not None or a.replayed:
+            over = a.since_snap is not None and a.since_snap > LIVE_FOR
+            if a.replayed:
+                play.rows.append(("Read from", "the sideline view"))
+            if a.look[0]:
+                offense.rows.insert(0, ("Formation", a.look[0]))
+            if a.look[1]:
+                defense.rows.append(("Look", a.look[1]))
+            if a.coverage and a.since_snap is not None and a.since_snap >= 0:
+                defense.rows.append(("Coverage read", a.coverage))
+            if a.scores and not over:
+                best = a.best
+                most_open = max(a.scores, key=lambda s: s.separation)
+                offense.rows.append(("Best throw", f"{best.label}  {best.p_catch:.0%} caught, {best.yards_if_caught:.0f} yd"))
+                offense.rows.append(("Most open", f"{most_open.label}  {most_open.separation:.1f} yd"))
+                if a.rush is not None:
+                    defense.rows.append(("Nearest rusher", f"{a.rush[0]:.1f} yd" + (", closing" if a.rush[1] > 1.0 else "")))
+            if a.throw is not None:
+                t = a.throw
+                rank = f"option {t.rank}" if t.firm else f"option {t.ranks[0]}-{t.ranks[1]}"
+                play.rows.append(("Threw to", f"{t.target}, {rank} of {len(t.options)}"))
+            if over and rec is not None and rec.matched:
+                play.rows.append(("Result", rec.outcome))
+                if rec.charted_look:
+                    play.rows.append(("Charted", rec.charted_look))
+        return [s for s in (offense, defense, play) if s.rows or s.roster]
+
+    def rows(self, _result=None) -> list[tuple[str, str]]:
+        """The same, as one plain list."""
+        play = self.headline()
+        return ([("Play", play)] if play else []) + [row for s in self.sections() for row in s.rows]
 
 
 class PlayAnalyzer(AnalysisView):
@@ -524,6 +564,21 @@ class PlayAnalyzer(AnalysisView):
         for sid, name in name_players(rec.on_field, found, ball, rec.receiver if rec.matched else "", rec.pass_location if rec.matched else "").items():
             self.labels[sid] = name
 
+    def _named(self) -> set[tuple[str, int]]:
+        """The listed players the film has found: by jersey number, by look, or by where the
+        formation puts them."""
+        side = {sid: "offense" if role in OFFENSE_ROLES else "defense" for sid, role in self.roles.items() if role != "OFF"}
+        named = {(side[sid], listed.number) for found in (self.by_number, self.by_look) for sid, listed in found.items() if sid in side}
+        listed = self.record.on_field if self.record is not None else None
+        if listed is not None:
+            for sid, label in self.labels.items():
+                roster = listed.offense if side.get(sid) == "offense" else listed.defense if sid in side else []
+                named.update((side[sid], p.number) for p in roster if p.last_name == label)
+            passers = [p for p in listed.offense if p.position == "QB"]
+            if len(passers) == 1 and "QB" in self.roles.values():          # one quarterback listed and one found: that is him
+                named.add(("offense", passers[0].number))
+        return named
+
     def _eleven_a_side(self, out) -> None:
         """After the snap a man nobody has named is a player only while his side is short of
         eleven; the men well inside the field are taken first. Anyone left over is the official
@@ -756,6 +811,7 @@ class PlayAnalyzer(AnalysisView):
                 and self._mapped_frames % NUMBERS_EVERY == 0:
             self._name_by_number()
         out.anchor, out.snap_t, out.look = self.anchor, self.snap_t, self.look
+        out.named = self._named()
         out.slot_ids = [s.id for s in slots]
 
         if self.anchor is not None:
@@ -957,6 +1013,7 @@ def live_stats(view: AnalysisView, value_model: PassValueModel | None = None, **
     return LiveStats(value_fn=view.value, metrics_fn=view.rows, explain_fn=view.explain, baseline_fn=baseline,
                      value_clock_fn=view.value_clock, value_unit="yd", value_note_fn=view.value_note,
                      team_names_fn=view.team_names, team_counts_fn=view.team_counts, clock_text_fn=view.clock_text, rows_always=True,
+                     headline_fn=view.headline, sections_fn=view.sections,
                      value_needs_yards=False, delta_note="vs typical from here", **kwargs)
 
 
