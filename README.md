@@ -89,8 +89,9 @@ Panthers at Browns:
   <img src="docs/media/pipeline.svg" width="1000" alt="The pipeline: from the film, four lanes (see the players, map the field, read the play, name the players) feed the play's snap, roles, names, pass value and coverage read, which go out to the overlay and panel, the top-down view, the CSV and play log, and the game table">
 </p>
 
-1. A pretrained YOLO detector finds the players and BoT-SORT keeps an identity on each one
-   through the camera's pans. Jersey colour splits the two teams.
+1. A YOLO detector, pretrained and then fine-tuned on 275 frames of this film corrected by
+   hand, finds the players, and BoT-SORT keeps an identity on each one through the camera's
+   pans. Jersey colour splits the two teams.
 2. The yard lines are found by their shared vanishing point and checked against the hash
    marks. A pan/tilt/zoom camera is fitted to them and followed frame to frame, so every
    foot on screen has a position in yards.
@@ -106,6 +107,33 @@ Panthers at Browns:
    typical play at the same moment from the same part of the field.
 
 [docs/REPO_GUIDE.md](docs/REPO_GUIDE.md) goes through the code file by file.
+
+## How well it works
+
+A working prototype, measured on three games (78 runs and passes, 27 minutes of film).
+[docs/STATUS.md](docs/STATUS.md) has every number.
+
+| | Games it was built on | A game nothing was trained on |
+|---|---|---|
+| Plays worked out, of those identified | 43 of 49 | 24 of 29 |
+| Quarterback picked out | 42 of 42 | 23 of 24 |
+| Passes given a live value | 24 of 24 | 10 of 12 |
+| Defenders in the box, within one | 41 of 42 | 19 of 24 |
+| Players named by number, a play | 5.7 | 0.7 |
+| Position error against hand-labelled truth | 0.72 to 0.98 yd on four plays | 0.77 yd on one play |
+
+**On new film** from the same source and angle, reading the play off the screen, mapping the
+field, the snap, the quarterback, the value and the positions carry over. Names do not yet:
+the number reader has seen almost only light jerseys.
+
+**What does not work:**
+
+- A player does not keep one identity through a pile: 20 to 43 changes a play on the five
+  labelled plays, against a target of 2.
+- The end-zone camera angle is not mapped; the sideline read is replayed over it.
+- The throw cannot be timed without tracking the ball, so the throw grade is rough.
+- Broadcast film and other players are not supported: the play is read from NFL Pro's
+  own header.
 
 ## Quick start
 
