@@ -46,8 +46,8 @@ def render(cam: Camera, size=(900, 1520)) -> np.ndarray:
     white = np.zeros_like(ground)
     white |= inside & (np.abs(X - 5 * np.round(X / 5)) < 0.09)                       # yard lines
     whole = np.abs(X - np.round(X)) < 0.07
-    for row in (HASH, FIELD_W - HASH):
-        white |= inside & whole & (np.abs(Y - row) < 0.34)                           # hash marks, 2 ft long
+    white |= inside & whole & (Y > HASH - 2 / 3) & (Y < HASH)                        # hash marks: 2 ft long, painted
+    white |= inside & whole & (Y > FIELD_W - HASH) & (Y < FIELD_W - HASH + 2 / 3)    # outward from the inbounds line
     white |= ground & (X > 8) & (X < 112) & (((Y > -2) & (Y < 0)) | ((Y > FIELD_W) & (Y < FIELD_W + 2)))   # border
     img[white] = (235, 235, 235)
     img = cv2.GaussianBlur(img, (3, 3), 0)
@@ -134,6 +134,28 @@ def test_following_a_pan_and_zoom():
     assert to_truth(moved, H) < 1.0
     regr.reset()
     assert regr.H is None and not regr.locked
+
+
+def test_the_sidelines_pin_the_camera():
+    """The first lock knows the yard lines and the hash rows. Following it, the border's inner
+    edge is the sideline: the camera's position is solved once more with it, and the border
+    then sits on the field's edge in the mapping."""
+    from nfl_intel.fieldmask import border_edges
+
+    regr = FieldRegistrar(retry_every=1, refine_every=1)
+    frame = render(SIDELINE_CAM)
+    field = find_field(frame)
+    assert regr.update(frame, field) is not None
+    moved = 0
+    for _ in range(4):
+        H = regr.update(frame, field)
+        moved += int(bool(regr.info.get("moved")))
+    assert moved == 1 and regr.info["sidelines"] >= 1                         # solved again once, then held
+    edges = border_edges(frame, H, regr.rect)
+    assert any(e is not None for e in edges)
+    for edge, true in zip(edges, (0.0, FIELD_W)):
+        assert edge is None or abs(edge - true) < 0.35
+    assert to_truth(SIDELINE_CAM, H) < 1.0
 
 
 def test_light_green_lines_under_floodlights_are_paint():

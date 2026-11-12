@@ -28,12 +28,18 @@ from dataclasses import dataclass, field
 import cv2
 import numpy as np
 
-from .camera import Camera, fit_camera, looks_across
+from .camera import Camera, fit_camera, looks_across, residuals
+from .fieldmask import border_points
 from .field import FIELD_WIDTH, HASH_INSET
 from .imaging import shrink
 
-HASH_NEAR = HASH_INSET                       # 23.58 yd from the near sideline
-HASH_FAR = FIELD_WIDTH - HASH_INSET          # 29.75
+# The rows the registration follows are the hash marks' centres. A mark is two feet long and
+# painted outward from the inbounds line, which is the 70 ft 9 in: the 18 ft 6 in between the
+# two rows is between their inner ends. So the centres are a foot further out on each side,
+# 6.83 yd apart and not 6.17. Taking them for 6.17 made the whole field a tenth too narrow.
+HASH_MARK = 2.0 / 3.0
+HASH_NEAR = HASH_INSET - HASH_MARK / 2.0     # 23.25 yd from the near sideline
+HASH_FAR = FIELD_WIDTH - HASH_NEAR           # 30.08
 CANON_WIDTH = 1280                           # cameras are expressed in a 1280-wide version of the video
 WORK_WIDTH = 1280                            # first lock: full detail
 REFINE_WIDTH = 960                           # following: cheaper
@@ -182,6 +188,7 @@ class View:
     scale: float                             # working pixels per full-frame pixel
     to_canon: float                          # canonical pixels per working pixel
     boxes: np.ndarray | None                 # players' boxes in working pixels
+
 
 
 def header_rows(frame: np.ndarray, grass: np.ndarray, rect: tuple[int, int, int, int]) -> int:
@@ -865,10 +872,23 @@ def _search_along_normals(mask: np.ndarray, pts: np.ndarray, radius: int) -> tup
 
 def refine(camera: Camera, frame: np.ndarray, field_info, rect, boxes: np.ndarray | None = None,
            guide: np.ndarray | None = None, radius_frac: float = 0.014, img: np.ndarray | None = None,
-           soft: bool = False) -> tuple[Camera, dict] | None:
+           soft: bool = False, pinned: frozenset = frozenset((0, 1)),
+           seat: tuple[float, float] | None = None) -> tuple[Camera, dict] | None:
     """Follow the camera: find the paint near where each line should be and refit pan, tilt
     and zoom. `guide` is a full-frame pixel -> yards mapping used to predict where the lines
     are (the last mapping carried along by the camera's motion); default is the camera itself.
+
+    The sidelines are the inner edge of the white border, found through the guide. The first
+    lock knows only the yard lines and the hash rows, six yards apart in the middle of the
+    field, and from those the camera's place is loose enough to leave a sideline a yard or
+    three out. So the first time a sideline shows that is not in `pinned` (0 the low side, 1
+    the high), the camera's position is solved again with it; after that only pan, tilt and
+    zoom move, as before. `info["border"]` says which sidelines this frame showed and
+    `info["moved"]` whether the position was solved again.
+
+    `seat` is the camera's distance from the field and its height as earlier shots pinned
+    them (it is one camera, bolted down for the game). Given it, and no new sideline in this
+    frame, the camera is put there and only slides along the field: `info["seated"]`.
     """
     view = prepare(frame, field_info, boxes, REFINE_WIDTH, rect, img, soft=soft)
     if view is None:
@@ -908,17 +928,13 @@ def refine(camera: Camera, frame: np.ndarray, field_info, rect, boxes: np.ndarra
             continue
         used_lines += 1
         cons_x.extend((p[0], p[1], 5.0 * k, 1.0) for p in m)
-    xs = np.arange(5.0 * lo, 5.0 * hi + 0.1, 1.0)
-    used_side = 0
-    for y in (0.0, FIELD_WIDTH):
-        q, ok = project(np.column_stack([xs, np.full_like(xs, y)]))
-        if ok.sum() < 8:
+    border, edges = set(), []
+    for side, ((edge_px, _), y) in enumerate(zip(border_points(frame, H_full, rect), (0.0, FIELD_WIDTH))):
+        if len(edge_px) < 3:
             continue
-        m, found = _search_along_normals(fat, q[ok], radius)
-        if found.sum() < max(6, 0.5 * ok.sum()):
-            continue
-        used_side += 1
-        cons_y.extend((p[0], p[1], y, 1.0) for p in m)
+        border.add(side)
+        edges.extend(((p[0] - x1) * view.scale, (p[1] - y1) * view.scale, y) for p in edge_px)
+    used_side = len(border)
     clean = view.mask.copy()
     for pts in erase:
         cv2.polylines(clean, [np.round(pts).astype(np.int32).reshape(-1, 1, 2)], False, 0, 7)
@@ -938,6 +954,10 @@ def refine(camera: Camera, frame: np.ndarray, field_info, rect, boxes: np.ndarra
             cons_y.extend((p[0], p[1], row, 1.0) for p in centres[near])
     if used_lines < 2 or len(cons_x) < 12:
         return None
+    if edges:
+        # a handful of points on a sideline against dozens of hash marks: weigh them to count as much
+        weight = float(np.clip(np.sqrt(max(used_ticks, 1) / len(edges)), 1.0, 3.0))
+        cons_y.extend((u, v, y, weight) for u, v, y in edges)
     if len(cons_y) < 3:
         # nothing says where we are across the field this frame: hold it with the guide's own opinion
         gx = np.linspace(0.2 * w, 0.8 * w, 4)
@@ -948,13 +968,34 @@ def refine(camera: Camera, frame: np.ndarray, field_info, rect, boxes: np.ndarra
     cons_x[:, :2] *= view.to_canon
     cons_y[:, :2] *= view.to_canon
     cw, ch = canon_size(rect)
-    fit = fit_camera(cons_x, cons_y, cw, ch, start=camera, fix_position=True)
-    if fit is None:
-        return None
+    move = bool(border - pinned) and used_ticks >= 4          # a sideline not seen before, and hash marks to hold the middle
+    def sane(fit, loose: float = 1.0) -> bool:
+        """A refit that fits, and hasn't thrown the camera somewhere else."""
+        if fit is None:
+            return False
+        cam, err = fit
+        return bool(err <= 0.4 and abs(np.log(cam.f / camera.f)) <= 0.25 * loose and abs(cam.pan - camera.pan) <= 0.15 * loose
+                    and abs(cam.tilt - camera.tilt) <= 0.1 * loose)
+
+    seated, fit = False, None
+    if move:                                                  # the camera's place changing takes tilt and zoom with it
+        fit = fit_camera(cons_x, cons_y, cw, ch, start=camera, fix_position=False, robust=False)
+        move = sane(fit, 2.0)
+    elif seat is not None and used_ticks >= 4:
+        there = Camera(camera.f, camera.pan, camera.tilt, np.array([camera.C[0], seat[0], seat[1]]), camera.cx, camera.cy)
+        fit = fit_camera(cons_x, cons_y, cw, ch, start=there, fix_seat=True)
+        seated = sane(fit, 2.0) and fit[1] <= 0.3
+    if not (move or seated):                                  # the usual case, and the fallback: pan, tilt and zoom only
+        fit = fit_camera(cons_x, cons_y, cw, ch, start=camera, fix_position=True)
+        if not sane(fit):
+            return None
     cam, err = fit
-    if err > 0.4 or abs(np.log(cam.f / camera.f)) > 0.25 or abs(cam.pan - camera.pan) > 0.15 or abs(cam.tilt - camera.tilt) > 0.1:
-        return None
-    return cam, {"lines": used_lines, "sidelines": used_side, "ticks": used_ticks, "residual": err}
+    across = np.abs(residuals(cam.params(), cons_x[:0], cons_y, cw / 2.0, ch / 2.0)) / np.maximum(cons_y[:, 3], 1e-9)
+    on_edge = (cons_y[:, 2] == 0.0) | (cons_y[:, 2] == FIELD_WIDTH)
+    return cam, {"lines": used_lines, "sidelines": used_side, "ticks": used_ticks, "residual": err,
+                 "border": frozenset(border), "moved": move, "seated": seated,
+                 "hash_error": float(across[~on_edge].mean()) if (~on_edge).any() else None,     # yards, at the hash marks
+                 "border_error": float(across[on_edge].mean()) if on_edge.any() else None}       # yards, at the sidelines
 
 
 def camera_motion(prev_gray: np.ndarray, gray: np.ndarray, mask: np.ndarray | None = None) -> np.ndarray | None:
@@ -1009,11 +1050,25 @@ class FieldRegistrar:
         self._field_seen = None
         self._retry = False
         self._wait = self.retry_every
+        self._pinned: frozenset = frozenset()      # the sidelines the camera's position has been solved with
+        self._seated = False                       # this lock's camera has been put where earlier shots pinned it
+        self._tries = 0                            # refits of the camera's position that didn't come off, this lock
+        self.seats: list[tuple[float, float]] = getattr(self, "seats", [])   # (distance, height) from every pin: kept across shots
         self.lock_id = getattr(self, "lock_id", 0)
 
     @property
     def locked(self) -> bool:
         return self.H is not None
+
+    def _seat(self) -> tuple[float, float] | None:
+        """Where earlier shots put this camera, if this lock hasn't been put there yet and its
+        own first guess is the same camera (the reverse angle is a different one)."""
+        if self._seated or self._pinned or len(self.seats) < 2 or self.camera is None:
+            return None
+        back, up = (float(np.median(v)) for v in zip(*self.seats))
+        if abs(self.camera.C[1] - back) > 30.0 or abs(self.camera.C[2] - up) > 15.0:
+            return None
+        return back, up
 
     def _working(self, frame: np.ndarray, rect) -> tuple[np.ndarray, np.ndarray]:
         """One resize of the video per frame: the working image, and a small grey one for motion."""
@@ -1065,10 +1120,20 @@ class FieldRegistrar:
             self.H = guide
             self.age += 1
             if self.frames % self.refine_every == 0 or self._retry:
-                out = refine(self.camera, frame, field_info, self.rect, boxes, guide=guide, img=img, soft=self.soft)
+                again = self._tries < 8                         # a position that won't refit is left alone after a few goes
+                seat = self._seat() if again else None
+                out = refine(self.camera, frame, field_info, self.rect, boxes, guide=guide, img=img, soft=self.soft,
+                             pinned=self._pinned if again else frozenset((0, 1)), seat=seat)
                 self._retry = out is None                       # a miss is retried on the very next frame
                 if out is not None:
                     self.camera, self.info = out
+                    if (self.info["border"] - self._pinned and not self.info["moved"]) or (seat and not self.info["seated"]):
+                        self._tries += 1
+                    if self.info.get("moved"):
+                        self._pinned = self._pinned | self.info["border"]
+                        self.seats = (self.seats + [(float(self.camera.C[1]), float(self.camera.C[2]))])[-40:]
+                    if self.info.get("moved") or self.info.get("seated"):
+                        self._seated = True
                     self.H = homography_for(self.camera, self.rect)
                     self.age = 0
                     self.refined += 1
@@ -1085,6 +1150,7 @@ class FieldRegistrar:
                 reg = register(frame, field_info, boxes)
                 if reg is not None:
                     self.H, self.camera, self.last = reg.H, reg.camera, reg
+                    self._pinned, self._seated, self._tries = frozenset(), False, 0
                     self.soft = reg.soft                        # followed with the paint it was found with
                     self.age = 0
                     self.full_ok += 1

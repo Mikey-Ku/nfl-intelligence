@@ -57,31 +57,32 @@ FTN's official charting, 2026 week 3):
 
 **On film, three games** (the two above and a night game no model was trained on; 78 runs
 and passes, 27 minutes; the detector fine-tuned on 275 hand-corrected frames, passed with
-`--weights`; `nfl plays-check` on `outputs/v8`, 2026-11-11):
+`--weights`; `nfl plays-check` on `outputs/v12`, 2026-11-12, the field mapped at its true width):
 
 | | games it was built on | third game |
 |---|---|---|
 | Plays identified in the play-by-play from the screen | 49 of 49 | 29 of 29 |
-| Quarterback picked out | 42 of 42 | 23 of 24 |
-| Passes given a live value | 24 of 24 | 10 of 12 |
-| Backs in the backfield, within one | 42 of 42 (exact 36) | 24 of 24 (exact 16) |
-| Defenders in the box, within one | 41 of 42 (exact 23) | 19 of 24 (exact 10) |
-| Pass rushers, within one | 23 of 24 (exact 14) | 10 of 12 (exact 4) |
+| Quarterback picked out | 42 of 42 | 24 of 24 |
+| Passes given a live value | 24 of 24 | 11 of 12 |
+| Backs in the backfield, within one | 42 of 42 (exact 36) | 23 of 24 (exact 17) |
+| Defenders in the box, within one | 41 of 42 (exact 23) | 21 of 24 (exact 8) |
+| Pass rushers, within one | 24 of 24 (exact 16) | 9 of 12 (exact 5) |
 
-Over all three, 57 of 66 plays were anchored from the painted numbers and the other 9 from
+Over all three, 58 of 66 plays were anchored from the painted numbers and the other 8 from
 the direction the drive had already shown. Players found by the detector on 55 held-out
 frames: 80.5% stock, 91.1% fine-tuned.
 
-**Against positions labelled by hand** (`nfl truth`, then `nfl eval` on `outputs/v8`; five
+**Against positions labelled by hand** (`nfl truth`, then `nfl eval` on `outputs/v12`; five
 plays of 14 frames each, four from Panthers at Browns and one from the unseen night game):
 
 | | |
 |---|---|
-| Position error, mean of the five plays | 0.82 yd (0.72 to 0.98) |
-| The same with the steady foot-point offset removed | 0.35 yd (0.32 to 0.37) |
+| Position error, mean of the five plays | 0.89 yd (0.78 to 1.02) |
+| The same with the steady foot-point offset removed | 0.37 yd (0.34 to 0.40) |
+| Where the mapping puts the far sideline's inner edge | within 0.1 yd on all three clips (0.7 to 3.0 yd inside before 2026-11-12) |
 | Labelled player positions found | 89.7% of 1,531 |
 | Placed players that were not players | 3 of 1,377 |
-| Identity changes a play | 28 (20 to 43); the target is 2 |
+| Identity changes a play | 28 (22 to 42); the target is 2 |
 
 Five plays are a small sample. Position held on every one, the unseen game included;
 identity held on none.

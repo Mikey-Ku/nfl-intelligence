@@ -47,7 +47,7 @@ those rows, so anything built on the Big Data Bowl layout can read it.
 
 | File | What it does |
 |---|---|
-| `registration.py` | Pixels to yards from the paint alone. Finds the painted lines, keeps the biggest family meeting at one vanishing point (the yard lines), numbers them so equal steps in number are equal steps on the field, finds the hash-mark rows and checks their dashes land on whole yards, then fits a camera. `FieldRegistrar` follows that camera through a shot: optical flow carries the mapping to the next frame, the paint refits pan, tilt and zoom. The biggest file; the module docstring walks through the steps. |
+| `registration.py` | Pixels to yards from the paint alone. Finds the painted lines, keeps the biggest family meeting at one vanishing point (the yard lines), numbers them so equal steps in number are equal steps on the field, finds the hash-mark rows and checks their dashes land on whole yards, then fits a camera. `FieldRegistrar` follows that camera through a shot: optical flow carries the mapping to the next frame, the paint refits pan, tilt and zoom. The sidelines are the inner edge of the white border; the first time one shows, the camera's position is solved again with it, and that position is carried to later shots. The biggest file; the module docstring walks through the steps. |
 | `camera.py` | The camera model: level, fixed position, pan, tilt and zoom. Six unknowns, so yard lines plus one hash row are enough. A vectorised grid search finds the start, `scipy.optimize.least_squares` refines it. `looks_across` declines the end-zone angle, where the long lens breaks the model. |
 | `field.py` | The field in yards (Big Data Bowl convention: x 0-120, y 0-53.3), landmark names like `L40-H1`, a hand-made `FieldCalibration` from clicked points, and `draw_field` for the minimap. |
 | `calibrate.py` | `nfl calibrate`: click landmarks on a frame to build a homography by hand. The fallback when registration can't lock. |
@@ -112,7 +112,7 @@ those rows, so anything built on the Big Data Bowl layout can read it.
 | Path | What it is |
 |---|---|
 | `scripts/make_showcase.py` | Builds the two showcase videos from chosen plays with captions. |
-| `tests/` | 200 tests, synthetic data only, no footage. `formations.py` is the shared synthetic play (a shotgun formation and a film of it); `conftest.py` runs Qt offscreen. Each `test_*.py` matches a module or a stage. |
+| `tests/` | 201 tests, synthetic data only, no footage. `formations.py` is the shared synthetic play (a shotgun formation and a film of it); `conftest.py` runs Qt offscreen. Each `test_*.py` matches a module or a stage. |
 | `README.md` | The front page: what it does, what it looks like, quick start. |
 | `docs/USAGE.md` | Every command and flag, output files, training, how to know it is working. |
 | `docs/STATUS.md` | Where each capability stands, with its measured number, what is next, known limits. |

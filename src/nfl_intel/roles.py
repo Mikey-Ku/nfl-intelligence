@@ -27,6 +27,11 @@ HASH_LOW, HASH_HIGH = 23.58, 29.75      # the ball is never spotted outside the 
 NEUTRAL = 1.0                           # closer to the line than this, the jersey decides the side
 SIDELINE = 1.0                          # closer to a sideline than this is an official or a coach
 BOX = 4.2                               # tackle to tackle is about eight yards
+# Who counts as in the box, in yards either side of the ball: on the line out to the edge rushers,
+# and the linebackers stacked behind. Set against the charting when the field was mapped a tenth
+# too narrow (7.5 and 4.5 then); these are the same widths on the field at its true width.
+BOX_ON_THE_LINE = 8.3
+BOX_BEHIND_IT = 5.0
 BACKFIELD = 9.0
 
 
@@ -239,7 +244,7 @@ def _defense_look(xy: np.ndarray, idx: dict, los: float, ball: float) -> str:
     deep = [i for i in idx["DEF"] if xy[i, 0] - los >= 9.0 and abs(xy[i, 1] - ball) <= 14.0]     # a corner playing off isn't a safety
     # the box: the men on the line out to the edge rushers, and the linebackers stacked behind them
     box = [i for r in ("DEF", "DL") for i in idx[r]
-           if (xy[i, 0] - los <= 2.0 and abs(xy[i, 1] - ball) <= BOX + 3.3) or (xy[i, 0] - los <= 6.0 and abs(xy[i, 1] - ball) <= BOX + 0.3)]
+           if (xy[i, 0] - los <= 2.0 and abs(xy[i, 1] - ball) <= BOX_ON_THE_LINE) or (xy[i, 0] - los <= 6.0 and abs(xy[i, 1] - ball) <= BOX_BEHIND_IT)]
     high = {0: "No deep safety", 1: "Single high", 2: "Two high"}.get(len(deep), f"{len(deep)} deep")
     return f"{high}, {len(box)}+ in the box"
 

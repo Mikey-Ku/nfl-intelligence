@@ -7,7 +7,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">
   <img src="https://img.shields.io/badge/built%20on-Apple%20silicon-000000?logo=apple&logoColor=white" alt="Built on Apple silicon">
-  <img src="https://img.shields.io/badge/tests-200%20passing-2ea44f" alt="200 tests">
+  <img src="https://img.shields.io/badge/tests-201%20passing-2ea44f" alt="201 tests">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
 </p>
 
@@ -50,15 +50,15 @@ what holds up and what does not.
   <tr>
     <td align="center"><h3>17-18 fps</h3>4K capture with full analysis, Apple M5</td>
     <td align="center"><h3>78 / 78</h3>runs and passes on three games identified from the screen and matched to the play-by-play</td>
-    <td align="center"><h3>57 / 66</h3>plays anchored to real yard lines by reading the painted numbers</td>
+    <td align="center"><h3>58 / 66</h3>plays anchored to real yard lines by reading the painted numbers</td>
   </tr>
   <tr>
-    <td align="center"><h3>65 / 66</h3>quarterbacks picked out at the snap, checked against official charting</td>
+    <td align="center"><h3>66 / 66</h3>quarterbacks picked out at the snap, checked against official charting</td>
     <td align="center"><h3>36 / 36</h3>jersey numbers read right on held-out plays, checked by eye</td>
     <td align="center"><h3>AUC 0.76</h3>catch model on held-out weeks, calibrated within 3 points</td>
   </tr>
   <tr>
-    <td align="center"><h3>0.82 yd</h3>between a tracked player and the same player clicked by hand, on five plays</td>
+    <td align="center"><h3>0.89 yd</h3>between a tracked player and the same player clicked by hand, on five plays</td>
     <td align="center"><h3>90%</h3>of 1,531 hand-labelled player positions found</td>
     <td align="center"><h3>28 a play</h3>identity changes, against a target of 2: the open problem</td>
   </tr>
@@ -134,11 +134,12 @@ A working prototype, measured on three games (78 runs and passes, 27 minutes of 
 | | Games it was built on | A game nothing was trained on |
 |---|---|---|
 | Plays worked out, of those identified | 43 of 49 | 24 of 29 |
-| Quarterback picked out | 42 of 42 | 23 of 24 |
-| Passes given a live value | 24 of 24 | 10 of 12 |
-| Defenders in the box, within one | 41 of 42 | 19 of 24 |
+| Quarterback picked out | 42 of 42 | 24 of 24 |
+| Passes given a live value | 24 of 24 | 11 of 12 |
+| Defenders in the box, within one | 41 of 42 | 21 of 24 |
 | Players named by number, a play | 5.7 | 0.7 |
-| Tracked player against the same player clicked by hand | 0.72 to 0.98 yd on four plays | 0.77 yd on one play |
+| Tracked player against the same player clicked by hand | 0.78 to 1.02 yd on four plays | 0.84 yd on one play |
+| Where the mapping puts the far sideline | within 0.1 yd | within 0.1 yd |
 
 **On new film** from the same source and angle, reading the play off the screen, mapping the
 field, the snap, the quarterback, the value and the positions carry over. Names do not yet:
@@ -146,12 +147,11 @@ the number reader has seen almost only light jerseys.
 
 **What does not work:**
 
-- The field mapping is fitted to the yard lines and hash marks in the middle of the field,
-  and out at the sidelines it comes up short: on these three games it puts a sideline 1 to
-  3 yd inside where it is. A player near a sideline is off by about that much across the
-  field. The hand-labelled check above goes through the same mapping, so it does not see
-  this.
-- A player does not keep one identity through a pile: 20 to 43 changes a play on the five
+- The hand-labelled check goes through the pipeline's own field mapping, so it cannot see an
+  error in the mapping. One got past it: the field was mapped a tenth too narrow until the
+  sidelines were measured directly. They now land within 0.4 yd; the hash marks and the
+  sidelines are still each 0.2 to 0.35 yd off, because one camera has to fit both.
+- A player does not keep one identity through a pile: 22 to 42 changes a play on the five
   labelled plays, against a target of 2.
 - The end-zone camera angle is not mapped; the sideline read is replayed over it.
 - The throw cannot be timed without tracking the ball, so the throw grade is rough.

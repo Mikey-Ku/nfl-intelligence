@@ -124,43 +124,52 @@ def error(cam: Camera, cons_x, cons_y) -> float:
 
 
 def fit_camera(cons_x: np.ndarray, cons_y: np.ndarray, w: int, h: int, start: Camera | None = None,
-               fix_position: bool = False) -> tuple[Camera, float] | None:
+               fix_position: bool = False, robust: bool = True, fix_seat: bool = False) -> tuple[Camera, float] | None:
     """Find the camera that best explains the constraints.
 
     With `start`, refine from there (and with `fix_position`, move only pan, tilt and zoom:
     the camera is bolted down). Without it, search zoom, tilt and pan on a grid, solve the
-    position in closed form at each, and refine the best few.
+    position in closed form at each, and refine the best few. `robust` lets a few
+    constraints be wrong without dragging the camera; turn it off when every constraint has
+    been checked and a few far ones (a sideline) have to be obeyed. `fix_seat` holds the
+    camera's distance from the field and its height (known from another shot) and lets it
+    slide along the field, where each lock counts its yards from a zero of its own.
     """
     cons_x, cons_y = np.asarray(cons_x, dtype=np.float64), np.asarray(cons_y, dtype=np.float64)
     if len(cons_x) < 8 or len(cons_y) < 3:
         return None
     cx, cy = w / 2.0, h / 2.0
 
-    def refine(cam: Camera, free_position: bool) -> tuple[Camera, float] | None:
+    def refine(cam: Camera, free: tuple[int, ...]) -> tuple[Camera, float] | None:
+        """Least squares over the parameters in `free` (0 zoom, 1 pan, 2 tilt, 3-5 position)."""
         p0 = cam.params()
-        if free_position:
-            fun = lambda p: residuals(p, cons_x, cons_y, cx, cy)      # noqa: E731
-            x0 = p0
-        else:
-            fun = lambda p: residuals(np.concatenate([p, p0[3:]]), cons_x, cons_y, cx, cy)   # noqa: E731
-            x0 = p0[:3]
+        idx = list(free)
+
+        def fun(q):
+            p = p0.copy()
+            p[idx] = q
+            return residuals(p, cons_x, cons_y, cx, cy)
+
         try:
-            sol = least_squares(fun, x0, loss="soft_l1", f_scale=0.5, max_nfev=60)
+            sol = least_squares(fun, p0[idx], loss="soft_l1" if robust else "linear", f_scale=0.5, max_nfev=60)
         except Exception:
             return None
-        p = sol.x if free_position else np.concatenate([sol.x, p0[3:]])
+        p = p0.copy()
+        p[idx] = sol.x
         out = Camera.from_params(p, cx, cy)
         if not realistic(out, w):
             return None
         return out, error(out, cons_x, cons_y)
 
     if start is not None:
-        return refine(start, free_position=not fix_position)
+        if fix_seat:
+            return refine(start, (0, 1, 2, 3))
+        return refine(start, (0, 1, 2) if fix_position else (0, 1, 2, 3, 4, 5))
 
     candidates = grid_search(cons_x, cons_y, w, cx, cy)
     best = None
     for f, pan, tilt, C in candidates[:4]:
-        out = refine(Camera(float(f), float(pan), float(tilt), C, cx, cy), free_position=True)
+        out = refine(Camera(float(f), float(pan), float(tilt), C, cx, cy), (0, 1, 2, 3, 4, 5))
         if out is not None and (best is None or out[1] < best[1]):
             best = out
         if best is not None and best[1] < 0.06:
