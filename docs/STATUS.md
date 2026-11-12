@@ -9,7 +9,7 @@ to see each of these for yourself on a run.
 
 | Capability | Status | Measured | How to check |
 |---|---|---|---|
-| Player detection and tracking | Working; fine-tuned detector available | 17-18 fps on 4K with full analysis; 0.72-0.98 yd and 84-94% found on five labelled plays from two games; linemen in a pile still merge and trade numbers | `nfl run --shots`, panel's Tracking block |
+| Player detection and tracking | Working; fine-tuned detector available | 17-18 fps on 4K with full analysis; 0.72-0.98 yd and 84-94% found on five labelled plays from two games; linemen in a pile still merge and trade numbers | `nfl run --shots`, the panel's tracking line |
 | Team split by jersey colour | Working | | overlay colours |
 | Field mapping, sideline angle | Working, day and night, across the whole width | 70-100% of frames; the far sideline lands within 0.1 yd of where it is and the near one within 0.4 (they were 0.7-3.0 yd inside); the hash marks and the sidelines are each left 0.2-0.35 yd off by the one camera that fits both | `--shots` shows the fitted grid on the paint |
 | Field mapping, end-zone angle | Not mapped | long lens defeats the camera model | panel says "read from the sideline view" |
@@ -24,7 +24,7 @@ to see each of these for yourself on a run.
 | Throw grade | Experimental | throw moment within 0.6 s only 69% of the time | marked firm only when the rank holds |
 | Game table | Working | 621 player-plays over 42 plays on the test game | `nfl game-table` |
 | Detector fine-tuning | Done once, on 275 corrected frames | players found 80.5% → 91.1% on 55 held-out frames; see below | `nfl prelabel`, `nfl boxes`, `nfl train` |
-| Officials and the bench | Officials dropped by sight with the fine-tuned detector, by count and position with the stock one, and given no box or team either way; the bench kept out by the border measured in yards | boxes on an official 53 → 4 on the held-out frames; a side on the panel is never more than eleven | |
+| Officials and the bench | Officials dropped by sight with the fine-tuned detector, by count and position with the stock one, and given no box or team either way; the bench kept out by the border measured in yards | boxes on an official 53 → 4 on the held-out frames; a side is never more than eleven, on the panel or in boxes: after the snap a man nobody has named is boxed only while his side is short of eleven, so the official on the sideline is not; with a play read the panel shows a block for each side in place of the counts | |
 
 ## Role assignment in detail
 

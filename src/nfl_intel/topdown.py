@@ -180,7 +180,7 @@ class TopDownWriter:
         frame = np.full((self.height + self.title_h, view.width + 16 + self.panel_width, 3), 20, dtype=np.uint8)
         frame[self.title_h:, : view.width] = draw_topdown(view, analysis, self._trails)
         if snapshot is not None:
-            dpr = 1.5
+            dpr = 1.4
             panel = qimage_to_bgr(render_panel(snapshot, int(self.panel_width / dpr), int(self.height / dpr), dpr=dpr))
             ph, pw = min(panel.shape[0], self.height), min(panel.shape[1], self.panel_width)
             frame[self.title_h : self.title_h + ph, view.width + 16 : view.width + 16 + pw] = panel[:ph, :pw]

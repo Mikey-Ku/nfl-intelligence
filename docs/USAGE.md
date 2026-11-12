@@ -173,9 +173,13 @@ to move.
 - **Test shots** (`--shots DIR`): an annotated frame plus the panel every few seconds. The
   fitted grid should sit on the paint, the line of scrimmage on the ball, and names on the
   players from the snap. A grid that drifts off the lines means the camera fit lost its lock.
-- **The panel's Tracking block**: players tracked (22 plus a few officials on a good shot),
-  picked up late and lost (both turn red above 3), and a sparkline of players found over the
-  last ten seconds.
+- **The panel's tracking line** (its last line, when there is room): players in sight,
+  picked up late and lost; it turns red when either of the last two passes 3. With
+  `--no-analysis` the panel has the full block and a sparkline of players found over the last
+  ten seconds.
+- **The panel's two blocks**: each side's names should be the ones on NFL Pro's list, and a
+  name turns white once the film has found that player (by number, by look, or by where the
+  formation puts him).
 - **The play log** (`<clip>.plays.json`): `matched` says the play was found in the
   play-by-play, `anchored_by` what settled the field (`painted numbers`, `end zone` or
   `formation`, or two of them), `snap` the snap time, `numbers` and `looks` which names came
@@ -192,7 +196,7 @@ to move.
     his box, a labeller clicks a little higher); ID switches count changes of `slot`.
   - `uv run nfl value-train` retrains the value models and prints the held-out AUC and
     calibration.
-- **The code**: `uv run pytest` runs 201 tests on synthetic frames and tracks; no footage
+- **The code**: `uv run pytest` runs 204 tests on synthetic frames and tracks; no footage
   is needed or used.
 
 ### Hand-labelling a play

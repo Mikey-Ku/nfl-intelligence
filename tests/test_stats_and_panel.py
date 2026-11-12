@@ -109,8 +109,26 @@ def test_a_side_is_never_more_than_eleven():
     stats = LiveStats()
     for i in range(10):
         snap = stats.update(_frame(i, range(22), teams=[0, 0, 0, 1]))        # officials and the bench dressed like one team
-    assert snap.team_counts == (11, 5, 6) and snap.on_field == 22          # 17 and 5 by jersey: six of the 17 are somebody else
+    assert snap.team_counts == (11, 5, 6) and snap.on_field == 16          # 17 and 5 by jersey: six of the 17 are somebody else, and not players
     stats = LiveStats(team_counts_fn=lambda: (11, 11, 1))                     # the caller knows the eleven a side
     for i in range(10):
         snap = stats.update(_frame(i, range(16), teams=[0, 1]))               # though only 16 are in sight just now
-    assert snap.team_counts == (11, 11, 1) and snap.on_field == 23
+    assert snap.team_counts == (11, 11, 1) and snap.on_field == 22          # the official is not one of the 22
+
+
+def test_the_panel_shows_a_block_for_each_side_in_place_of_the_counts(qt_app):
+    from nfl_intel.panel import qimage_to_bgr, render_panel
+    from nfl_intel.stats import PanelSection
+
+    def blocks():
+        return [PanelSection("CLE offense", 0, [("Formation", "Shotgun, 3 x 1, 1 back"), ("Personnel", "11 personnel: 1 RB, 1 TE, 3 WR")],
+                             [[("QB", [("Watson", True)]), ("RB", [("Judkins", True)])], [("WR", [("Jeudy", False), ("Bond", False)])]]),
+                PanelSection("CAR defense", 1, [("Package", "Dime, 2-3-6"), ("Look", "Single high, 6+ in the box")],
+                             [[("DB", [(name, False) for name in ("Horn", "Jackson", "Moehrig", "Wheatley", "Smith-Wade", "Scott", "Ransom")])]])]
+
+    plain, told = LiveStats(), LiveStats(sections_fn=blocks, headline_fn=lambda: "Q1 09:26  2nd & 10  CLE on CLE 35")
+    for i in range(20):
+        a, b = plain.update(_frame(i, range(22), teams=[0, 1])), told.update(_frame(i, range(22), teams=[0, 1]))
+    assert a.sections == [] and [s.title for s in b.sections] == ["CLE offense", "CAR defense"] and b.headline.startswith("Q1 09:26")
+    counts, sides = (qimage_to_bgr(render_panel(s, 300, 480, dpr=1.0)) for s in (a, b))
+    assert counts.shape == sides.shape and (counts.astype(int) - sides.astype(int)).any()

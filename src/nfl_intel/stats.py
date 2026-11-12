@@ -26,6 +26,17 @@ class Swing:
 
 
 @dataclass
+class PanelSection:
+    """One block of the panel: a side of the ball, or the play's result."""
+    title: str
+    team: int | None = None                        # the jersey group whose colour marks the block
+    rows: list[tuple[str, str]] = field(default_factory=list)
+    # who is out there, a line at a time: [("WR", [("Jeudy", True), ("Bond", False)]), ...] where True is a
+    # player the film has put a name on
+    roster: list[list[tuple[str, list[tuple[str, bool]]]]] = field(default_factory=list)
+
+
+@dataclass
 class StatsSnapshot:
     t: float
     fps: float
@@ -46,10 +57,13 @@ class StatsSnapshot:
     field_bbox: tuple[int, int, int, int] | None = None
     value_unit: str = "%"                          # "%" (value is 0..1) or "yd"
     team_names: tuple[str, str, str] = ("Dark jerseys", "Light jerseys", "Unassigned")
-    on_field_note: str = "of 22 players + officials"
+    on_field_note: str = "of 22 players"
     delta_note: str = "since the snap"
     value_note: str = ""                           # why there is no value, when the caller knows
     clock_text: str = ""                           # the caller's own clock ("snap +1.2s"), shown instead of the play clock
+    headline: str = ""                             # the play in words ("Q1 09:26  2nd & 10  CLE on CLE 35")
+    sections: list[PanelSection] = field(default_factory=list)   # when the caller has them, the panel shows these
+                                                                 # in place of the counts and the plain rows
 
 
 class LiveStats:
@@ -66,7 +80,7 @@ class LiveStats:
         min_swing: float | None = None,
         explain_fn: Callable[[float, float], str] | None = None,
         team_names: tuple[str, str, str] = ("Dark jerseys", "Light jerseys", "Unassigned"),
-        on_field_note: str = "of 22 players + officials",
+        on_field_note: str = "of 22 players",
         baseline_fn: Callable[[float], float] | None = None,
         value_clock_fn: Callable[[], float | None] | None = None,
         value_note_fn: Callable[[], str] | None = None,
@@ -74,6 +88,8 @@ class LiveStats:
         team_counts_fn: Callable[[], tuple[int, int, int] | None] | None = None,
         rows_always: bool = False,
         clock_text_fn: Callable[[], str] | None = None,
+        headline_fn: Callable[[], str] | None = None,
+        sections_fn: Callable[[], list[PanelSection]] | None = None,
         delta_note: str = "vs a typical play",
         value_needs_yards: bool = True,
     ):
@@ -95,6 +111,8 @@ class LiveStats:
         self.team_names_fn = team_names_fn
         self.team_counts_fn = team_counts_fn  # the caller's own count of each side (it knows who is a player)
         self.clock_text_fn = clock_text_fn
+        self.headline_fn = headline_fn
+        self.sections_fn = sections_fn
         self.delta_note = delta_note
         self.value_needs_yards = value_needs_yards   # False: the caller decides when it has a value (it may be replaying one)
         self.rows_always = rows_always        # the caller has rows to show even without yards (the play's name)
@@ -184,7 +202,8 @@ class LiveStats:
         named = self.team_counts_fn() if self.team_counts_fn is not None else None
         a, b, other = named if named is not None else teams
         teams = (min(a, PER_SIDE), min(b, PER_SIDE), other + max(0, a - PER_SIDE) + max(0, b - PER_SIDE))   # a twelfth man is somebody else
-        on_field = sum(teams) if named is not None else len(players)
+        # the two sides; officials and anyone unplaced are the third row, not players
+        on_field = teams[0] + teams[1] or min(len(players), 2 * PER_SIDE)      # before the jerseys are told apart, everyone in sight
         calibrated = bool(players) and all(p.field_yd is not None for p in players)
         clock = max(0.0, t - self._play_start) if self._in_play else 0.0
 
@@ -230,6 +249,8 @@ class LiveStats:
             on_field_note=self.on_field_note,
             value_note=self.value_note_fn() if self.value_note_fn is not None else "",
             clock_text=self.clock_text_fn() if self.clock_text_fn is not None else "",
+            headline=self.headline_fn() if self.headline_fn is not None else "",
+            sections=self.sections_fn() if self.sections_fn is not None else [],
             delta_note=self.delta_note if self.baseline_fn is not None else "since the snap",
         )
 

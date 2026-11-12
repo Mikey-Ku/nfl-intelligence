@@ -109,7 +109,9 @@ def test_the_panel_is_told_what_is_going_on(qt_app):
     assert last.clock_text.startswith("snap +")
     assert last.team_names[:2] == ("GB offense", "ATL defense")
     names = [name for name, _ in last.rows]
-    assert names[:3] == ["Play", "Best throw", "Most open"] and "Offense" in names
+    assert names[0] == "Play" and {"Formation", "Best throw", "Most open", "Look"} <= set(names)
+    assert last.headline == "Q4 08:21  2nd & 7  GB on ATL 15"
+    assert [(s.title, s.team) for s in last.sections] == [("GB offense", 0), ("ATL defense", 1)]     # a block for each side, in its colour
     assert render_panel(last, 300, 560, dpr=1.0).width() == 300
 
 
@@ -249,7 +251,7 @@ def test_the_other_camera_angle_replays_the_read(qt_app):
     assert second[0].value is None and an.value_note().strip() == "" or True
     last = snaps[-1]
     assert last.value == pytest.approx(first[-1].value) and last.clock_text.startswith("snap +")
-    assert ("Read from", "the sideline view") in last.rows and dict(last.rows)["Offense"] == "Shotgun, 3 x 1, 1 back"
+    assert ("Read from", "the sideline view") in last.rows and dict(last.rows)["Formation"] == "Shotgun, 3 x 1, 1 back"
     early = snaps[5]
     assert early.value is None and "sideline view" in early.value_note
 
@@ -339,3 +341,50 @@ def test_team_counts_are_the_named_eleven_and_officials_are_on_neither_side():
     view.last = Analysis(anchor=SimpleNamespace(offense_team=1), snap_t=3.0,
                          players=seen + back + [man("OFF")], unseen=lost)
     assert view.team_counts() == (11, 11, 2)                                    # defense, offense, the official and the unknown
+
+
+def test_a_twelfth_man_after_the_snap_gets_no_box():
+    from types import SimpleNamespace
+
+    from nfl_intel.schema import TrackedPlayer
+
+    def man(role, team, y=20.0):
+        return TrackedPlayer(0, team, (0.0, 0.0, 1.0, 1.0), 0.9, (0.0, 0.0), (50.0, y), role=role)
+
+    offense = [man("QB", 1)] + [man("REC", 1)] * 5 + [man("OL", 1)] * 5
+    defense = [man("DEF", 0)] * 7 + [man("DL", 0)] * 3                          # ten in sight, none carried: one is missing
+    official, found_again = man(None, 0, y=0.4), man(None, 0, y=18.0)           # both in white; one stands on the sideline
+    twelfth = man(None, 1)
+    out = SimpleNamespace(players=offense + defense + [official, found_again, twelfth], loose=[], unseen=[])
+    PlayAnalyzer._eleven_a_side(None, out)
+    assert (found_again.role, found_again.team) == (None, 0)                    # the defense had room for one, and he is in the field
+    assert (official.role, official.team) == ("OFF", None)
+    assert (twelfth.role, twelfth.team) == ("OFF", None)                        # the offense already has its eleven
+
+
+def test_the_panel_lists_each_side_by_position_and_marks_who_the_film_has_named():
+    from nfl_intel.analysis import DEFENSE_LINES, OFFENSE_LINES, Analysis, AnalysisView, roster_lines
+    from nfl_intel.personnel import Listed, OnField
+
+    offense = [Listed(10, "QB", "Jordan Love"), Listed(8, "RB", "Josh Jacobs"), Listed(85, "TE", "Tucker Kraft"),
+               Listed(87, "WR", "Romeo Doubs"), Listed(13, "WR", "Dontayvion Wicks"), Listed(0, "WR", "Matthew Golden"),
+               Listed(76, "T", "Jordan Morgan"), Listed(72, "", "Aaron Banks"), Listed(74, "C", "Elgton Jenkins"),
+               Listed(50, "G", "Zach Tom"), Listed(63, "T", "Rasheed Walker")]
+    assert roster_lines(offense, OFFENSE_LINES, {0, 85}) == [
+        [("QB", [("Love", False)]), ("RB", [("Jacobs", False)]), ("TE", [("Kraft", True)])],
+        [("WR", [("Doubs", False), ("Wicks", False), ("Golden", True)])],
+        [("OL", [("Morgan", False), ("Banks", False), ("Jenkins", False), ("Tom", False), ("Walker", False)])],     # the unread letter is a lineman
+    ]
+    defense = [Listed(97, "DT", "Grady Jarrett"), Listed(3, "S", "Jessie Bates III"), Listed(40, "K", "Somebody Else")]
+    assert roster_lines(defense, DEFENSE_LINES, set()) == [
+        [("DL", [("Jarrett", False)])], [("DB", [("Bates", False)])], [("", [("Else", False)])]]         # nobody drops off the list
+
+    view = AnalysisView()
+    assert view.sections() == [] and view.headline() == ""                      # no play read yet: the panel falls back to its counts
+    rec = _record()
+    rec.on_field = OnField("GB", "ATL", offense, defense)
+    view.last = Analysis(record=rec, named={("offense", 0)})
+    gb, atl = view.sections()                                                    # read off the screen before the field is anchored
+    assert gb.title == "GB offense" and gb.rows == [("Personnel", "11 personnel: 1 RB, 1 TE, 3 WR")]
+    assert gb.roster[1] == [("WR", [("Doubs", False), ("Wicks", False), ("Golden", True)])]
+    assert atl.title == "ATL defense" and atl.roster[0] == [("DL", [("Jarrett", False)])]

@@ -11,7 +11,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen
 
 from .draw import team_color
-from .stats import StatsSnapshot
+from .stats import PanelSection, StatsSnapshot
 
 BG = QColor(14, 16, 20, 238)
 CARD = QColor(255, 255, 255, 14)
@@ -59,6 +59,69 @@ def _sparkline(p: QPainter, rect: QRectF, points: list[tuple[float, float]], lo:
     p.drawPath(path)
 
 
+def _row(p: QPainter, m: float, y: float, w: float, name: str, value: str) -> None:
+    p.setFont(_font(10))
+    p.setPen(MUTED)
+    p.drawText(QPointF(m, y), name)
+    p.setPen(TEXT)
+    room = int(w - p.fontMetrics().horizontalAdvance(name) - 10)
+    p.drawText(QRectF(m, y - 13, w, 18), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+               p.fontMetrics().elidedText(value, Qt.TextElideMode.ElideRight, room))
+
+
+def _section(p: QPainter, m: float, y: float, w: float, section: PanelSection) -> float:
+    """One block: its title beside the side's colour, its rows, then who is out there by
+    position, the players the film has named in white and the rest of the list in grey."""
+    x = m
+    if section.team is not None:
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(_team_qcolor(section.team))
+        p.drawEllipse(QPointF(m + 4, y - 3.5), 4, 4)
+        x += 14
+    _label(p, x, y, section.title)
+    y += 17
+    for name, value in section.rows:
+        _row(p, m, y, w, name, value)
+        y += 16
+    if section.roster:
+        y -= 1
+    for line in section.roster:
+        x = m
+        for label, players in line:
+            p.setFont(_font(8, bold=True))
+            p.setPen(MUTED)
+            tag = p.fontMetrics().horizontalAdvance(label) + 5 if label else 0
+            p.setFont(_font(9))
+            first = p.fontMetrics().horizontalAdvance(players[0][0] + ",")
+            if x > m and x + tag + first > m + w:              # a group's tag stays with its first name
+                x, y = m, y + 13
+            if label:
+                p.setFont(_font(8, bold=True))
+                p.drawText(QPointF(x, y), label)
+                x += tag
+            p.setFont(_font(9))
+            for i, (name, found) in enumerate(players):
+                text = name + ("," if i < len(players) - 1 else "")
+                width = p.fontMetrics().horizontalAdvance(text)
+                if x > m and x + width > m + w:
+                    x, y = m + tag, y + 13
+                p.setPen(TEXT if found else MUTED)
+                p.drawText(QPointF(x, y), text)
+                x += width + 4
+            x += 8
+        y += 13
+    return y + 9
+
+
+def _tracking_line(p: QPainter, m: float, y: float, w: float, height: float, s: StatsSnapshot) -> None:
+    """How the tracking is holding up, in one line, when there is room left for it."""
+    if height - y < 14:
+        return
+    p.setFont(_font(8.5))
+    p.setPen(BAD if s.reacquired > 3 or s.lost > 3 else MUTED)
+    p.drawText(QPointF(m, max(y, height - 12.0)), f"Tracking   {s.active_ids} in sight   {s.reacquired} picked up late   {s.lost} lost")
+
+
 def render_panel(s: StatsSnapshot, width: int = 300, height: int = 560, dpr: float = 2.0) -> QImage:
     img = QImage(int(width * dpr), int(height * dpr), QImage.Format.Format_ARGB32_Premultiplied)
     img.setDevicePixelRatio(dpr)
@@ -75,13 +138,21 @@ def render_panel(s: StatsSnapshot, width: int = 300, height: int = 560, dpr: flo
     y = 28.0
 
     # header
+    number = f"Play {s.play}" if s.play else "Waiting for a play"
+    clock = f"{s.clock_text or f'{s.play_clock:4.1f}s'}   {s.fps:4.1f} fps"
     p.setFont(_font(13, bold=True))
     p.setPen(TEXT)
-    p.drawText(QPointF(m, y), f"Play {s.play}" if s.play else "Waiting for a play")
-    p.setFont(_font(9))
-    p.setPen(MUTED)
-    p.drawText(QRectF(m, y - 14, w, 18), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-               f"{s.clock_text or f'{s.play_clock:4.1f}s'}   {s.fps:4.1f} fps")
+    if s.headline:                                  # the play in words, with its number and the clock on a line below
+        p.drawText(QPointF(m, y), p.fontMetrics().elidedText(s.headline, Qt.TextElideMode.ElideRight, int(w)))
+        y += 15
+        p.setFont(_font(9))
+        p.setPen(MUTED)
+        p.drawText(QPointF(m, y), f"{number}   {clock}")
+    else:
+        p.drawText(QPointF(m, y), number)
+        p.setFont(_font(9))
+        p.setPen(MUTED)
+        p.drawText(QRectF(m, y - 14, w, 18), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, clock)
     y += 22
 
     # play value / plus-minus
@@ -131,6 +202,13 @@ def render_panel(s: StatsSnapshot, width: int = 300, height: int = 560, dpr: flo
             p.drawText(QPointF(m + 40, y), text)
             y += 17
         y += 10
+
+    if s.sections:                                  # the caller knows the play: a block for each side of the ball
+        for section in s.sections:
+            y = _section(p, m, y, w, section)
+        _tracking_line(p, m, y, w, height, s)
+        p.end()
+        return img
 
     # on field
     _label(p, m, y, "On the field")
