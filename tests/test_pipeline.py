@@ -96,3 +96,20 @@ def test_camera_cut_resets_tracks_and_keeps_ids_unique():
     ids_a = {p.track_id for r in first for p in r.players}
     ids_b = {p.track_id for r in second for p in r.players}
     assert ids_a and not (ids_a & ids_b)
+
+
+def test_a_man_behind_the_border_is_off_the_field_in_yards():
+    """With the border measured through the mapping, the test is in yards: a coach two yards
+    behind the sideline is out, a receiver on it is in, wherever the mapping puts that edge."""
+    from collections import deque
+
+    from nfl_intel.fieldmask import find_field
+
+    tracker = PlayTracker(detector=FakeDetector([[]]), fps=30)
+    tracker.field = find_field(_stadium_frame())
+    tracker._edges = (deque([2.0, 2.1, 1.9]), deque([51.4, 51.5, 51.6]))      # the mapping is squeezed 2 yd a side
+    feet = np.array([[400.0, 300.0]] * 5)                                       # all on the turf in the picture
+    yards = np.array([[30.0, 25.0], [30.0, 2.2], [30.0, 0.4], [30.0, 51.9], [30.0, 53.0]])
+    assert tracker._in_bounds(feet, yards).tolist() == [True, True, False, True, False]
+    tracker._edges = (deque(), deque())                                         # no border seen: the picture decides
+    assert tracker._in_bounds(feet, yards).all()

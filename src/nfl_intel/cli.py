@@ -175,12 +175,29 @@ def cmd_windows(args) -> None:
         print(w)
 
 
+def film_rect(frame, tracker) -> tuple[int, int, int, int] | None:
+    """The film's own rectangle inside the captured page, or None when it can't be told."""
+    registrar = getattr(tracker, "registrar", None)
+    rect = registrar.rect if registrar is not None else None
+    field = getattr(tracker, "field", None)
+    if rect is None and field is not None:
+        from .registration import video_rect
+
+        rect = video_rect(frame, field.band, field.grass)
+    if rect is None or rect[2] - rect[0] < 50 or rect[3] - rect[1] < 50:
+        return None
+    if field is not None:                              # the newer player lays its score strip over the film's top edge
+        from .registration import header_rows
+
+        rect = (rect[0], rect[1] + header_rows(frame, field.grass, rect), rect[2], rect[3])
+    return rect
+
+
 def _compose(frame, res, snap, tracker, fixed: bool = False) -> np.ndarray:
     """The annotated field, the top-down view and the stats panel side by side, 900 pixels high.
     `fixed` gives every frame the same size (for video): the film is letterboxed into 1600
     pixels and the top-down slot is kept even while there is nothing to draw in it."""
     from .draw import annotate
-    from .fieldmask import expand_bbox
     from .panel import qimage_to_bgr, render_panel
 
     base = frame
@@ -192,9 +209,9 @@ def _compose(frame, res, snap, tracker, fixed: bool = False) -> np.ndarray:
 
         base = draw_grid(frame, registrar.H, registrar.rect, label=None if anchor is None else anchor.yard_name)
     img = annotate(base, res)
-    field = getattr(tracker, "field", None)
-    if field is not None:
-        x1, y1, x2, y2 = expand_bbox(field.bbox, frame.shape, margin=0.04)
+    rect = film_rect(frame, tracker)
+    if rect is not None:                               # the film alone: none of the page it plays in
+        x1, y1, x2, y2 = rect
         img = img[y1:y2, x1:x2]
     height = 900
     gap = np.full((height, 16, 3), 20, dtype=np.uint8)
