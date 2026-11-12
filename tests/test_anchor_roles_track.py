@@ -325,6 +325,9 @@ def test_painted_numbers_are_parsed_and_vote_for_a_goal_line():
     assert goal_line([n(30, 0.0, 13.0, 0), n(40, 10.0, 40.0, 0)]) == (-30.0, -1)     # two numbers agree without arrows
     assert goal_line([n(40, 10.0, 13.0, -1)]) == (-30.0, -1)
     assert goal_line([n(50, 20.0, 13.0, 0)]) == (70.0, 1)
+    assert goal_line([n(50, 20.0, 13.0, 0), n(30, 0.0, 14.0, 0)]) == (-30.0, -1)     # the 50 says which 30 that is, arrow or no arrow
+    assert goal_line([n(50, 20.0, 13.0, 0), n(40, 30.0, 39.0, 0)]) == (70.0, 1)
+    assert goal_line([n(50, 20.0, 13.0, 0), n(30, 3.0, 14.0, 0)]) is None            # a 30 that is not twenty yards from the 50: no help
     assert goal_line([]) is None
 
     class Text:
@@ -476,3 +479,17 @@ def test_a_second_track_on_the_same_man_takes_over_his_number():
     for f in range(10, 20):
         assert tr.update(f / 20, np.array([[30.0 + 0.1 * f, 20.2]]), [0], [37])[0].id == first
     assert len(tr.players) == 1
+
+
+def test_the_direction_from_earlier_in_the_quarter_outranks_the_formation():
+    """A defense walked up tight and an offense spread deep read, by depth alone, as the other
+    way round. The paint settled this team's direction two plays ago; that stands."""
+    x = np.array([41.4, 41.3, 41.5, 44.5, 44.6, 41.0, 39.2, 39.1, 39.0, 36.0, 35.0, 28.0, 28.5, 37.0])
+    team = np.array([0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1])
+    guess = anchor_play(x, team, 60.0)
+    assert guess.source == "formation" and guess.direction == -1 and guess.offense_team == 0
+    told = anchor_play(x, team, 60.0, known=1)
+    assert told.source == "the drive so far" and told.direction == 1 and told.offense_team == 1
+    # and the paint, when it is read on this play, still has the last word
+    painted = anchor_play(x, team, 15.0, end_zone=(25.0, -1), source="painted numbers", known=1)
+    assert painted.source == "painted numbers" and painted.direction == -1

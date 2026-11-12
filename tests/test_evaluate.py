@@ -96,3 +96,24 @@ def test_the_slot_survives_the_csv(tmp_path):
     write_csv(tmp_path / "run.csv", pred)
     back = read_csv(tmp_path / "run.csv")
     assert back[0].players[0].slot == 4 and back[0].players[1].slot is None
+
+
+def test_truth_is_put_into_the_yards_of_the_run_being_scored():
+    """Labelled over a run that had the play the other way round; scored against one that has it right."""
+    from nfl_intel.evaluate import through_the_run
+
+    def frame(f, flip):
+        players = []
+        for k in range(6):
+            px = (100.0 + 40 * k + 3 * f, 300.0 + 25 * (k % 3))
+            yd = (20.0 + px[0] / 20, 10.0 + px[1] / 20)
+            if flip:
+                yd = (120.0 - yd[0], 53.3 - yd[1])
+            players.append(TrackedPlayer(k + 1, 0, (px[0] - 5, px[1] - 20, px[0] + 5, px[1]), 0.9, px, yd))
+        return FrameResult(f, f / 2, (1280, 720), players)
+
+    truth = [frame(f, flip=True) for f in range(5)]           # yards as the mirrored run gave them
+    pred = [frame(f, flip=False) for f in range(5)]
+    assert evaluate(pred, truth).recall < 0.5                   # as stored: nowhere near
+    r = evaluate(pred, through_the_run(pred, truth))
+    assert r.recall == 1.0 and r.position_error < 0.01 and r.id_switches == 0

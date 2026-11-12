@@ -111,9 +111,12 @@ def read_numbers(flat: FlatField, reader=None) -> list[PaintedNumber]:
 def goal_line(numbers: list[PaintedNumber]) -> tuple[float, int] | None:
     """Where the nearer goal line is in the mapping's yards, and which way it lies (+1 / -1).
 
-    Every number votes: with its arrow for one goal line, without it for either. Two numbers
-    that agree, or one with an arrow, settle it.
+    Every number votes: with its arrow for one goal line, without it for either. A 50 has no
+    arrow and no nearer goal line, but it stands fifty yards from both, so it backs whichever
+    of another number's two candidates lies fifty yards from it: a 50 and a 30 twenty yards
+    apart say everything. Two numbers that agree, or one with an arrow, settle it.
     """
+    fifty = [n for n in numbers if n.value == 50]
     votes: dict[tuple[float, int], float] = {}
     for n in numbers:
         if n.value == 50:
@@ -121,8 +124,11 @@ def goal_line(numbers: list[PaintedNumber]) -> tuple[float, int] | None:
         for g in ((n.goal,) if n.goal else (1, -1)):
             key = (n.x + g * n.value, g)
             votes[key] = votes.get(key, 0.0) + (1.0 if n.goal else 0.45) * n.confidence
+    for (goal, side) in list(votes):
+        near = [f for f in fifty if abs(f.x - (goal - side * 50.0)) <= 2.5]
+        if near:
+            votes[(goal, side)] += 0.6 * max(f.confidence for f in near)
     if not votes:
-        fifty = [n for n in numbers if n.value == 50]
         return None if not fifty else (fifty[0].x + 50.0, 1)            # at midfield either goal line will do
     (goal, side), weight = max(votes.items(), key=lambda kv: kv[1])
     rival = max((w for (g, s), w in votes.items() if (g, s) != (goal, side)), default=0.0)

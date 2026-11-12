@@ -717,21 +717,30 @@ def _rescale_across(cam: Camera, err: float, both: bool, option: list[Line], tic
 def register(frame: np.ndarray, field_info, boxes: np.ndarray | None = None, max_error: float = 0.35) -> Registration | None:
     """First lock from a single frame. `field_info` is fieldmask.FieldInfo; boxes are full-frame xyxy.
 
-    White lines first. If they give no lock, the same again taking light-green lines as
-    paint (`paint_mask`'s `soft`): a night game on vivid turf has hardly any white ones."""
-    reg = _register(frame, field_info, boxes, max_error, soft=False)
-    if reg is None:
+    White lines first. Only when they show fewer than three yard lines is it tried again
+    taking light-green lines as paint (`paint_mask`'s `soft`): a night game on vivid turf has
+    hardly any white ones. Film whose white lines are there but give no lock on this frame
+    (players in the way, the camera swinging) is left to the next frame as before; a lock
+    from the looser paint there is a worse lock, and one such put a play on the field the
+    wrong way round."""
+    seen: list[int] = []
+    reg = _register(frame, field_info, boxes, max_error, soft=False, seen=seen)
+    if reg is None and seen and seen[0] < 3:
         reg = _register(frame, field_info, boxes, max_error, soft=True)
     return reg
 
 
-def _register(frame: np.ndarray, field_info, boxes: np.ndarray | None, max_error: float, soft: bool) -> Registration | None:
+def _register(frame: np.ndarray, field_info, boxes: np.ndarray | None, max_error: float, soft: bool,
+              seen: list[int] | None = None) -> Registration | None:
+    """`seen`, when given, gets the number of yard lines found."""
     view = prepare(frame, field_info, boxes, WORK_WIDTH, soft=soft)
     if view is None:
         return None
     h, w = view.mask.shape
     lines = long_lines(view.mask)
     family, _ = yard_line_family(lines, w, h)
+    if seen is not None:
+        seen.append(len(family))
     if len(family) < 3:
         return None
     ticks = hash_ticks(view.mask, family, family)
