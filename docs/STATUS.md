@@ -9,7 +9,7 @@ to see each of these for yourself on a run.
 
 | Capability | Status | Measured | How to check |
 |---|---|---|---|
-| Player detection and tracking | Working; fine-tuned detector available | 17-18 fps on 4K with full analysis; 0.97 yd and 92% found on one labelled play; linemen in a pile still merge and trade numbers | `nfl run --shots`, panel's Tracking block |
+| Player detection and tracking | Working; fine-tuned detector available | 17-18 fps on 4K with full analysis; 0.85-0.98 yd and 84-92% found on two labelled plays; linemen in a pile still merge and trade numbers | `nfl run --shots`, panel's Tracking block |
 | Team split by jersey colour | Working | | overlay colours |
 | Field mapping, sideline angle | Working, day and night | 70-100% of frames, 0.03-0.08 yd residual; 0.03-0.12 on the night game | `--shots` shows the fitted grid on the paint |
 | Field mapping, end-zone angle | Not mapped | long lens defeats the camera model | panel says "read from the sideline view" |
@@ -90,69 +90,78 @@ against the charting:
 
 | | games it was built on | third game |
 |---|---|---|
-| runs and passes worked out, of those identified | 43 of 49 | 23 of 29 |
-| quarterback named | 41 of 42 | 22 of 23 |
-| passes given a value | 24 of 24 | 10 of 11 |
-| throw found | 14 of 24 | 8 of 11 |
-| backs in the backfield, exact (within one) | 36 (42) of 42 | 15 (23) of 23 |
-| defenders in the box, exact (within one) | 23 (41) of 42 | 10 (19) of 23 |
-| pass rushers, exact (within one) | 14 (23) of 24 | 4 (9) of 11 |
+| runs and passes worked out, of those identified | 43 of 49 | 24 of 29 |
+| quarterback named | 42 of 42 | 23 of 24 |
+| passes given a value | 24 of 24 | 10 of 12 |
+| throw found | 14 of 24 | 8 of 12 |
+| backs in the backfield, exact (within one) | 36 (42) of 42 | 16 (24) of 24 |
+| defenders in the box, exact (within one) | 23 (41) of 42 | 10 (19) of 24 |
+| pass rushers, exact (within one) | 14 (23) of 24 | 4 (10) of 12 |
 | players named by number, a play | 5.7 | 0.7 |
 
 What carries over: reading the screen, the mapping, the snap, the quarterback, the value.
 What does not yet: exact counts in the box and of rushers, and names. The number reader has
 seen almost no purple or teal-trimmed shirts, and the look memory is trained per game and
-was not trained on this one. Of the six plays not worked out, three are snaps from the
+was not trained on this one. Of the five plays not worked out, two are snaps from the
 1-yard line, where half the players are lost in the pile, and two are cut off by the ends
 of the clip.
 
 ## Hand-labelled truth
 
-One play so far: Panthers 2nd and 15 (`live-02`, shot 3), 14 frames from a second before the
-snap to six after, every player's feet clicked with `nfl truth`, scored with `nfl eval`.
+Two plays so far, both from `live-02`: 14 frames each, from a second before the snap to six
+after, every player's feet clicked with `nfl truth` and scored with `nfl eval`.
 
-| | result | the brief's target |
-|---|---|---|
-| position error | 0.97 yd | about 1 yd |
-| of which a steady offset | 0.85 yd across the field | |
-| error around that offset | 0.36 yd | |
-| players found | 91.7% | |
-| false players | none | |
-| identity changes on the play | 21 | at most 2 |
+| | Panthers 2nd and 15, a pass | Panthers 1st and 10, a run | the brief's target |
+|---|---|---|---|
+| position error | 0.98 yd | 0.85 yd | about 1 yd |
+| of which a steady offset across the field | 0.88 yd | 0.72 yd | |
+| error around that offset | 0.37 yd | 0.37 yd | |
+| players found | 91.7% | 83.8% | |
+| false players | none | 1 in 250 | |
+| identity changes on the play | 21 | 43 | at most 2 |
 
-The offset is the run placing a player at the bottom of his box and the labeller clicking a
-little higher; it is the same on every player and every frame. The stock detector finds
-58.9% of the players on this play.
+Position is the same story on both. The offset is the run placing a player at the bottom of
+his box and the labeller clicking a little higher; it is the same on every player and every
+frame. The stock detector finds 58.9% of the players on the first play.
 
-Identity is the miss. The first score was 61 changes, and looking into it found the field
-tracker, whose number the names and roles hang on, less steady than the image tracker under
-it: a second, unconfirmed box on a player started a ghost beside him, and the two traded his
-detections. A detection now stays with the player who had its image track, an unconfirmed
-box starts a player only well clear of everyone, and a second track started on a man takes
-over his number. That took the play from 61 to 21 and lifted the charting checks on all
-four clips (backs in the backfield exact 30 to 36 of 42, the box within one 36 to 41 of 42).
-Corners, safeties and wide receivers now keep one number all play. The 21 left are linemen
-and backs in the pile and players lost late in the play, and some are the labels: at
-half-second steps two linemen crossing are hard to number by hand.
+Identity is the miss. The first play scored 61 changes at first, and looking into it found
+the field tracker, whose number the names and roles hang on, less steady than the image
+tracker under it: a second, unconfirmed box on a player started a ghost beside him, and the
+two traded his detections. A detection now stays with the player who had its image track,
+an unconfirmed box starts a player only well clear of everyone, and a second track started
+on a man takes over his number. That took the first play from 61 to 21 and lifted the
+charting checks on all four clips (backs in the backfield exact 30 to 36 of 42, the box
+within one 36 to 41 of 42). Corners, safeties and wide receivers now keep one number through
+a pass play. The second play, labelled afterwards, is a run where everyone closes on the
+ball, and there the field tracker does no better than the image tracker under it: 43. Some
+of the count is the labels, since at half-second steps two linemen crossing are hard to
+number by hand, but most of it is the pile.
 
-This is one play, and the one the fixes were worked out on. The other 19 are what make it a
-number.
+The second play also showed a play anchored the wrong way round: the Browns marked as the
+offense on a Panthers snap from their own 40. The painted arrows were not read there and a
+painted 50 was not being used, so the direction was left to a guess from the formation. A 50
+and one other number now settle it, and once the paint has settled which way a team is going
+in a quarter a later play is not anchored the other way. Three of 66 plays had been the
+wrong way round; now every play found in the play-by-play goes the way of its drive. (One
+play the play-by-play does not have still disagrees with its neighbours.)
+
+Two plays are not a result. The other 18 are what make it a number.
 
 ## Where it stands, in one paragraph
 
 Measured on three games, 78 runs and passes, 27 minutes of film. Reading the screen, pinning the field
 and reading the formation are solid, and they held on a game the models had never seen once
 two things that game exposed were fixed. The number that matters most, how far each tracked
-player is from where he really stood, has been measured on one hand-labelled play: about a
+player is from where he really stood, has been measured on two hand-labelled plays: about a
 yard, most of it a steady offset, with identities through the pile well short of the target.
-One play is not a result. So this is a working prototype with its central claim checked
-once.
+Two plays are not a result. So this is a working prototype with its central claim checked
+twice.
 
 ## The bar for a first release
 
 The brief's own success criteria, plus the detector:
 
-1. **Truth on 20 plays.** One labelled so far. `nfl truth` labels a play in about ten
+1. **Truth on 20 plays.** Two labelled so far. `nfl truth` labels a play in about ten
    minutes; `nfl eval` scores it. Target from the brief: about 1 yard mean error, at most 2
    identity swaps a play.
 2. **Detector fine-tuned.** Done 2026-11-10 on 275 corrected frames; the numbers are

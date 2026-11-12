@@ -192,7 +192,7 @@ to move.
     his box, a labeller clicks a little higher); ID switches count changes of `slot`.
   - `uv run nfl value-train` retrains the value models and prints the held-out AUC and
     calibration.
-- **The code**: `uv run pytest` runs 158 tests on synthetic frames and tracks; no footage
+- **The code**: `uv run pytest` runs 195 tests on synthetic frames and tracks; no footage
   is needed or used.
 
 ### Hand-labelling a play

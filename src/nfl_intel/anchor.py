@@ -25,7 +25,7 @@ class Anchor:
     direction: int               # +1 if the offense moves toward +x in those coordinates
     los_abs: float               # 110 - yards to goal
     offense_team: int | None     # which jersey group (0 or 1) has the ball
-    source: str                  # what settled the direction: "end zone" or "formation"
+    source: str                  # what settled the direction: "painted numbers", "end zone", "the drive so far", "huddle", "formation"
     split_accuracy: float        # share of players on their own side of the line
 
     def to_absolute(self, xy_rel) -> np.ndarray:
@@ -165,7 +165,7 @@ def find_end_zone(frame: np.ndarray, H: np.ndarray, rect, grass_lab: np.ndarray,
 
 
 def anchor_play(x_rel: np.ndarray, team: np.ndarray, yards_to_goal: float | None, end_zone: tuple[float, int] | None = None,
-                source: str = "end zone", huddle: tuple[int, float] | None = None) -> Anchor | None:
+                source: str = "end zone", huddle: tuple[int, float] | None = None, known: int | None = None) -> Anchor | None:
     """Fix the line of scrimmage and the offense's direction for one play.
 
     `x_rel`, `team`: the players before the snap. `end_zone`: where a goal line is in the
@@ -173,7 +173,10 @@ def anchor_play(x_rel: np.ndarray, team: np.ndarray, yards_to_goal: float | None
     painted numbers (`source` says which). `yards_to_goal` comes from the play-by-play; without
     it the goal line and the formation have to do, and the line of scrimmage is only as good
     as the gap between the two teams. `huddle`, from find_huddle earlier in the shot, says who
-    has the ball and which side they came from.
+    has the ball and which side they came from. `known` is the direction this offense was
+    going on an earlier play of the same quarter, when the paint settled it: teams change
+    ends between quarters, never within one, so it outranks the huddle and the formation,
+    which are guesses.
     """
     split = split_teams(x_rel, team)
     if split is None:
@@ -192,6 +195,8 @@ def anchor_play(x_rel: np.ndarray, team: np.ndarray, yards_to_goal: float | None
         if min(attacking, backed_up) <= 3.5:
             direction = side if attacking <= backed_up else -side
             settled = source
+    if direction is None and known is not None:
+        direction, settled = int(known), "the drive so far"
     if direction is None and huddle is not None and abs(huddle[1] - los_est) >= 1.0:
         direction = 1 if huddle[1] < los_est else -1            # they walk from the huddle up to the ball
         if (low_team == huddle[0]) != (direction > 0):

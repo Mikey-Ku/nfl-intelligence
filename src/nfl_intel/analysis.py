@@ -211,6 +211,7 @@ class PlayAnalyzer(AnalysisView):
         self.tracker = FieldTracker()
         self.snap = SnapDetector()
         self.memory: dict[tuple, PlayMemory] = {}       # plays already worked out, by their header
+        self._ways: dict[tuple, int] = {}               # (quarter, team with the ball) -> its direction, where the paint settled it
         self.plays: list[dict] = []                     # one summary per play worked out, in order
         self._shot = None
         self._lock = None
@@ -356,13 +357,21 @@ class PlayAnalyzer(AnalysisView):
         seen = find_huddle(np.array([s.xy for s in slots]), team)
         if seen is not None:
             self.huddle = seen
-        a = anchor_play(x, team, None if to_goal is None else float(to_goal), goal, source, self.huddle)
+        h = self.record.header if self.record is not None else None
+        drive = (h.quarter, h.offense) if h is not None and h.quarter is not None and h.offense else None
+        a = anchor_play(x, team, None if to_goal is None else float(to_goal), goal, source, self.huddle,
+                        self._ways.get(drive) if drive is not None else None)
         if to_goal is None:
             # with only the formation to say which way the offense is going, the latest look is
             # the one that counts: a guess made while the offense walked up must not outlive it
             self.anchor = a
         elif a is not None and (self.anchor is None or a.split_accuracy >= self.anchor.split_accuracy - 0.05):
             self.anchor = a
+        if drive is not None and self.record.matched and self.anchor is not None and self.anchor.source in ("painted numbers", "end zone"):
+            self._ways[drive] = self.anchor.direction            # the paint has said which way this team is going this quarter
+            other = self.record.defense or next((t for t in (h.game or ()) if t != h.offense), "")
+            if other:
+                self._ways[(h.quarter, other)] = -self.anchor.direction
 
     def _read_look(self) -> None:
         """Before the snap: what the formation looks like right now."""

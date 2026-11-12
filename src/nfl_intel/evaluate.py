@@ -134,5 +134,32 @@ def evaluate(pred: list[FrameResult], truth: list[FrameResult], threshold: float
     )
 
 
+def through_the_run(pred: list[FrameResult], truth: list[FrameResult]) -> list[FrameResult]:
+    """The truth's clicks put into yards by the run being scored, frame by frame.
+
+    A truth file keeps each click in pixels and in the yards of the run it was labelled over.
+    Another run may anchor the same play differently (a yard off, or the other way round), and
+    then the stored yards are in another frame altogether. The pixels are the truth; the yards
+    are worked out again from this run's own players (their pixel feet and their yards), which
+    is also what keeps the mapping's error out of the score. A frame this run has no mapping
+    for keeps the stored yards.
+    """
+    from dataclasses import replace
+
+    from .truth import frame_mapping
+
+    by_frame = {r.frame: r for r in pred}
+    out = []
+    for t in truth:
+        m = frame_mapping(by_frame[t.frame]) if t.frame in by_frame else None
+        if m is None or not t.players:
+            out.append(t)
+            continue
+        yd = m.to_field(np.array([p.foot_px for p in t.players], dtype=np.float64))
+        out.append(replace(t, players=[replace(p, field_yd=(float(q[0]), float(q[1]))) for p, q in zip(t.players, yd)]))
+    return out
+
+
 def evaluate_files(pred_csv: str | Path, truth_csv: str | Path, threshold: float | None = None) -> EvalResult:
-    return evaluate(read_csv(pred_csv), read_csv(truth_csv), threshold)
+    pred = read_csv(pred_csv)
+    return evaluate(pred, through_the_run(pred, read_csv(truth_csv)), threshold)
