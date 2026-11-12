@@ -69,12 +69,13 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", default="outputs/showcase")
     ap.add_argument("--only", type=int, default=None, help="build one segment (index) for a quick look")
+    ap.add_argument("--weights", default="yolo11s.pt", help="detector weights, e.g. the fine-tuned runs/detect/nfl/weights/best.pt")
     args = ap.parse_args()
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     fps = 24.0
     writers: dict[str, cv2.VideoWriter | None] = {"sideline": None, "topdown": None}
-    model_args = argparse.Namespace(calib=None, weights="yolo11s.pt", device=None, conf=0.3, imgsz=1280, tracker="botsort", tiles=1,
+    model_args = argparse.Namespace(calib=None, weights=args.weights, device=None, conf=0.3, imgsz=1280, tracker="botsort", tiles=1,
                                     no_analysis=False, no_play_lookup=False, no_hints=False, value_model=None, coverage_model=None)
     segments = SEGMENTS if args.only is None else [SEGMENTS[args.only]]
     t_all = time.perf_counter()
