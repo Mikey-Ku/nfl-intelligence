@@ -320,3 +320,22 @@ def test_a_defender_lost_and_found_again_keeps_his_name():
     back = next(p for p in out[-1].players if p.track_id == 99)
     assert name.startswith("D") and back.role == "DEF" and back.label == name
     assert list(an.labels.values()).count(name) == 1             # one man, one name
+
+
+def test_team_counts_are_the_named_eleven_and_officials_are_on_neither_side():
+    from types import SimpleNamespace
+
+    from nfl_intel.analysis import Analysis, AnalysisView
+    from nfl_intel.schema import TrackedPlayer
+
+    def man(role, team=None):
+        return TrackedPlayer(0, team, (0.0, 0.0, 1.0, 1.0), 0.9, (0.0, 0.0), (50.0, 20.0), role=role)
+
+    view = AnalysisView()
+    assert view.team_counts() is None                                          # nothing named yet: the jerseys decide
+    seen = [man("QB", 1)] + [man("REC", 1)] * 3 + [man("OL", 1)] * 3 + [man("DEF", 0)] * 6 + [man("DL", 0)] * 3
+    lost = [man("REC", 1)] * 2 + [man("OL", 1)] * 2 + [man("DEF", 0)]           # carried by the tracker, out of sight
+    back = [man(None, 0), man(None, None)]                                      # found again, not yet told apart
+    view.last = Analysis(anchor=SimpleNamespace(offense_team=1), snap_t=3.0,
+                         players=seen + back + [man("OFF")], unseen=lost)
+    assert view.team_counts() == (11, 11, 2)                                    # defense, offense, the official and the unknown

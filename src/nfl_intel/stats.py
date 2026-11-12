@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from .schema import FrameResult
 
 MIN_PLAYERS_FOR_PLAY = 6
+PER_SIDE = 11
 
 
 @dataclass
@@ -70,6 +71,7 @@ class LiveStats:
         value_clock_fn: Callable[[], float | None] | None = None,
         value_note_fn: Callable[[], str] | None = None,
         team_names_fn: Callable[[], tuple[str, str, str] | None] | None = None,
+        team_counts_fn: Callable[[], tuple[int, int, int] | None] | None = None,
         rows_always: bool = False,
         clock_text_fn: Callable[[], str] | None = None,
         delta_note: str = "vs a typical play",
@@ -91,6 +93,7 @@ class LiveStats:
         self.value_clock_fn = value_clock_fn  # seconds since the snap, when the caller knows it; None = not live
         self.value_note_fn = value_note_fn
         self.team_names_fn = team_names_fn
+        self.team_counts_fn = team_counts_fn  # the caller's own count of each side (it knows who is a player)
         self.clock_text_fn = clock_text_fn
         self.delta_note = delta_note
         self.value_needs_yards = value_needs_yards   # False: the caller decides when it has a value (it may be replaying one)
@@ -178,6 +181,10 @@ class LiveStats:
             sum(1 for p in players if p.team == 1),
             sum(1 for p in players if p.team is None),
         )
+        named = self.team_counts_fn() if self.team_counts_fn is not None else None
+        a, b, other = named if named is not None else teams
+        teams = (min(a, PER_SIDE), min(b, PER_SIDE), other + max(0, a - PER_SIDE) + max(0, b - PER_SIDE))   # a twelfth man is somebody else
+        on_field = sum(teams) if named is not None else len(players)
         calibrated = bool(players) and all(p.field_yd is not None for p in players)
         clock = max(0.0, t - self._play_start) if self._in_play else 0.0
 
@@ -205,7 +212,7 @@ class LiveStats:
             fps=self._fps,
             play=self.play,
             play_clock=clock,
-            on_field=len(players),
+            on_field=on_field,
             team_counts=teams,
             active_ids=len(current),
             reacquired=reacquired,

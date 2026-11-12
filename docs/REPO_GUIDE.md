@@ -41,7 +41,7 @@ those rows, so anything built on the Big Data Bowl layout can read it.
 | `detect.py` | `PlayerDetector`: a pretrained YOLO (`yolo11s` by default) on Apple's GPU, keeping the COCO `person` class; optional tiling for small far-sideline players. Fine-tuned weights plug in through `weights=`. |
 | `track.py` | `PlayerTracker`: stable ids across frames from the `trackers` package. BoT-SORT by default, because it compensates for the camera panning; ByteTrack as the cheap option. |
 | `teams.py` | Two teams from jersey colour. A tight torso crop, the median Lab colour of pixels that aren't grass, k-means into two clusters (team 0 is the darker jersey), votes per track so one bad frame can't flip a player, refits as the sample grows. `look()` labels a box with no track. |
-| `fieldmask.py` | Where the grass is. The grass colour is measured, not assumed, so green jerseys survive. Gives the turf band, the painted sidelines (for the bench filter), and the field crop the detector runs on. |
+| `fieldmask.py` | Where the grass is. The grass colour is measured, not assumed, so green jerseys survive. Gives the turf band, the field crop the detector runs on, and the bench filter: the painted sidelines in the picture, or, once the field is mapped, the white border measured in yards through the mapping (`border_edges`). |
 
 ### Mapping the field
 
@@ -112,7 +112,7 @@ those rows, so anything built on the Big Data Bowl layout can read it.
 | Path | What it is |
 |---|---|
 | `scripts/make_showcase.py` | Builds the two showcase videos from chosen plays with captions. |
-| `tests/` | 195 tests, synthetic data only, no footage. `formations.py` is the shared synthetic play (a shotgun formation and a film of it); `conftest.py` runs Qt offscreen. Each `test_*.py` matches a module or a stage. |
+| `tests/` | 200 tests, synthetic data only, no footage. `formations.py` is the shared synthetic play (a shotgun formation and a film of it); `conftest.py` runs Qt offscreen. Each `test_*.py` matches a module or a stage. |
 | `README.md` | The front page: what it does, what it looks like, quick start. |
 | `docs/USAGE.md` | Every command and flag, output files, training, how to know it is working. |
 | `docs/STATUS.md` | Where each capability stands, with its measured number, what is next, known limits. |

@@ -212,6 +212,70 @@ def find_sideline(frame: np.ndarray, field: FieldInfo, which: str, scale: float 
     return float(a), float(fy1 - a * fx1)
 
 
+def border_points(frame: np.ndarray, H: np.ndarray, rect: tuple[int, int, int, int], width: float = 160.0 / 3.0,
+                  step: float = 0.1, need: float = 1.0) -> list[tuple[np.ndarray, float | None]]:
+    """The inner edge of the white border round the field, for the low side and the high
+    side of the mapping's across-field axis: (pixels on the edge, where the mapping puts it
+    in yards), with no pixels and None for a side that isn't in the picture.
+
+    Found through the mapping: walk outward along lines halfway between the yard lines until
+    a yard of unbroken white. The pixels are where the sideline really is in the picture,
+    whatever the mapping says about them, so they can correct the mapping.
+    """
+    empty = [(np.zeros((0, 2)), None), (np.zeros((0, 2)), None)]
+    try:
+        Hinv = np.linalg.inv(H)
+    except np.linalg.LinAlgError:
+        return empty
+    x1, y1, x2, y2 = rect
+    probe = np.array([[[x1, y2]], [[x2, y2]], [[(x1 + x2) / 2.0, (y1 + y2) / 2.0]]], dtype=np.float64)
+    seen = cv2.perspectiveTransform(probe, H).reshape(-1, 2)
+    if not np.all(np.isfinite(seen)) or np.ptp(seen[:, 0]) > 150:
+        return empty
+    lo, hi = int(np.floor(seen[:, 0].min() / 5.0)) - 4, int(np.ceil(seen[:, 0].max() / 5.0)) + 4
+    run = int(round(need / step))
+    out = []
+    for side in (-1.0, 1.0):
+        ys = width / 2.0 + side * np.arange(21.0, 33.0, step)
+        found = []                                               # (u, v, yards across) where the white begins
+        for k in range(lo, hi):                                  # halfway between yard lines, clear of their paint
+            pts = np.column_stack([np.full(len(ys), 5.0 * k + 2.5), ys]).reshape(-1, 1, 2)
+            px = cv2.perspectiveTransform(pts, Hinv).reshape(-1, 2)
+            if not np.all(np.isfinite(px)):
+                continue
+            u, v = np.round(px[:, 0]).astype(int), np.round(px[:, 1]).astype(int)
+            inside = (u >= x1) & (u < x2) & (v >= y1) & (v < y2)
+            n = len(ys) if inside.all() else int(np.argmin(inside))          # samples before the line leaves the picture
+            if n < run:
+                continue
+            white = white_mask(frame[v[:n], u[:n]].reshape(-1, 1, 3))[:, 0]
+            count = 0
+            for i, w in enumerate(white):
+                count = count + 1 if w else 0
+                if count == run:
+                    at = i - run + 1
+                    found.append((px[at, 0], px[at, 1], ys[at]))
+                    break
+        limit = (-4.0, 7.0) if side < 0 else (width - 7.0, width + 4.0)      # further off than this is not the border
+        if len(found) >= 3:
+            arr = np.array(found)
+            edge = float(np.median(arr[:, 2]))
+            keep = arr[np.abs(arr[:, 2] - edge) <= 0.75]                     # the edge is one line: a white shirt on the way is not it
+            if len(keep) >= 3 and limit[0] <= edge <= limit[1]:
+                out.append((keep[:, :2], edge))
+                continue
+        out.append((np.zeros((0, 2)), None))
+    return out
+
+
+def border_edges(frame: np.ndarray, H: np.ndarray, rect: tuple[int, int, int, int]) -> tuple[float | None, float | None]:
+    """Where the white border begins, in the mapping's own yards across the field: (low side,
+    high side), None for a side that isn't in the picture. A mapping can be off out at a
+    sideline; a player is inside this edge or he isn't, whatever the error."""
+    low, high = border_points(frame, H, rect)
+    return low[1], high[1]
+
+
 def expand_bbox(bbox: tuple[int, int, int, int], frame_shape, margin: float = 0.08) -> tuple[int, int, int, int]:
     """Grow a box by `margin` of its size on each side, clamped to the frame."""
     h, w = frame_shape[:2]

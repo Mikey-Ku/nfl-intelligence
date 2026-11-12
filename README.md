@@ -1,13 +1,13 @@
 <h1 align="center">NFL Intelligence</h1>
 
 <p align="center">
-  <strong>Player tracking and a live pass value, read off NFL game film by a computer-vision pipeline.</strong>
+  <strong>The tracking broadcast the league keeps to itself, rebuilt from the film: where every player is, how the play moves, and the moment it is won or lost.</strong>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">
-  <img src="https://img.shields.io/badge/runs%20on-Apple%20silicon-000000?logo=apple&logoColor=white" alt="Apple silicon">
-  <img src="https://img.shields.io/badge/tests-195%20passing-2ea44f" alt="195 tests">
+  <img src="https://img.shields.io/badge/built%20on-Apple%20silicon-000000?logo=apple&logoColor=white" alt="Built on Apple silicon">
+  <img src="https://img.shields.io/badge/tests-200%20passing-2ea44f" alt="200 tests">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
 </p>
 
@@ -19,12 +19,30 @@
 
 ---
 
-The NFL tracks its players with chips in their shoulder pads and keeps the data to itself.
-This project gets the same kind of picture from the broadcast film. Pointed at the All-22
-player, it finds the players, maps the painted field to yards, reads the play off the screen,
-names the players from their jersey numbers, finds the snap and the formation, and scores
-every receiver on every frame with models trained on the league's own tracking data. It runs
-live on a MacBook.
+## Why this exists
+
+On Thursday nights Amazon's Prime Vision broadcast shows a football game as data while it is
+being played: every player tracked, with live numbers drawn over the play. It is drawn from the NFL's Next Gen Stats, chips in every set of shoulder pads that report each
+player's position ten times a second. That data belongs to the league. Everyone else gets
+the graphics a broadcast chooses to show, on the games it chooses to show them.
+
+This project is a replica of that picture, made from the one thing a fan does have: the
+film. Pointed at the All-22 coaches' film, it finds the 22 players, maps the painted field
+to real yards, reads which play this is off the screen, and redraws the play from above as
+it happens.
+
+It was built to answer two questions the film does not answer by being watched:
+
+- **How does a play move?** Each player becomes a path in yards from the snap: where he
+  lined up, where he went and how fast, and how the formation turned into the play.
+- **Where is a play won or lost?** Models trained on the league's own tracking data score
+  every receiver on every frame, so a play has a running value: the expected yards of the
+  best throw available right now, against a typical play from the same spot. The moments
+  that number jumps or drops are listed with the reason ("R5 opens up, 1.8 to 2.9 yd of
+  space"), and the throw that was made is compared with the ones that were there.
+
+It is a learning project and a prototype. [How well it works](#how-well-it-works) says
+what holds up and what does not.
 
 ## Highlights
 
@@ -40,7 +58,7 @@ live on a MacBook.
     <td align="center"><h3>AUC 0.76</h3>catch model on held-out weeks, calibrated within 3 points</td>
   </tr>
   <tr>
-    <td align="center"><h3>0.82 yd</h3>from where a player really stood, on five plays labelled by hand</td>
+    <td align="center"><h3>0.82 yd</h3>between a tracked player and the same player clicked by hand, on five plays</td>
     <td align="center"><h3>90%</h3>of 1,531 hand-labelled player positions found</td>
     <td align="center"><h3>28 a play</h3>identity changes, against a target of 2: the open problem</td>
   </tr>
@@ -120,7 +138,7 @@ A working prototype, measured on three games (78 runs and passes, 27 minutes of 
 | Passes given a live value | 24 of 24 | 10 of 12 |
 | Defenders in the box, within one | 41 of 42 | 19 of 24 |
 | Players named by number, a play | 5.7 | 0.7 |
-| Position error against hand-labelled truth | 0.72 to 0.98 yd on four plays | 0.77 yd on one play |
+| Tracked player against the same player clicked by hand | 0.72 to 0.98 yd on four plays | 0.77 yd on one play |
 
 **On new film** from the same source and angle, reading the play off the screen, mapping the
 field, the snap, the quarterback, the value and the positions carry over. Names do not yet:
@@ -128,6 +146,11 @@ the number reader has seen almost only light jerseys.
 
 **What does not work:**
 
+- The field mapping is fitted to the yard lines and hash marks in the middle of the field,
+  and out at the sidelines it comes up short: on these three games it puts a sideline 1 to
+  3 yd inside where it is. A player near a sideline is off by about that much across the
+  field. The hand-labelled check above goes through the same mapping, so it does not see
+  this.
 - A player does not keep one identity through a pile: 20 to 43 changes a play on the five
   labelled plays, against a target of 2.
 - The end-zone camera angle is not mapped; the sideline read is replayed over it.
@@ -137,7 +160,11 @@ the number reader has seen almost only light jerseys.
 
 ## Quick start
 
-macOS on Apple silicon, Python 3.12, [uv](https://docs.astral.sh/uv/).
+Python 3.12 and [uv](https://docs.astral.sh/uv/). Built and measured on a MacBook with Apple
+silicon. Two parts are macOS only: capturing a window by name and the on-device text
+recognition that reads the play off the screen. The rest (detection, tracking, the field
+mapping, the value models) is PyTorch and OpenCV and should run on saved clips anywhere
+with `--no-play-lookup`, but that has not been tried.
 
 ```bash
 uv sync --all-groups

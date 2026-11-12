@@ -144,6 +144,24 @@ class AnalysisView:
         names[has_ball] = off
         return tuple(names)
 
+    def team_counts(self) -> tuple[int, int, int] | None:
+        """Players on each side once the roles are named, in jersey-group order, then everyone
+        else in the picture. A side is the eleven named at the snap, so a player the detector
+        has lost for a moment still counts: there are never six men on one team."""
+        a = self.last
+        if a.anchor is None or a.snap_t is None:
+            return None
+        offense_team = a.anchor.offense_team
+        named = [p.role for p in list(a.players) + list(a.loose) + list(a.unseen)]
+        unnamed = [p.team for p in a.players if p.role is None]        # found again after the snap, not yet told apart
+        offense = sum(r in ("QB", "REC", "OL") for r in named) + sum(t == offense_team for t in unnamed)
+        defense = sum(r in ("DEF", "DL") for r in named) + sum(t == 1 - offense_team for t in unnamed)
+        if not offense and not defense:
+            return None
+        counts = [defense, defense, sum(p.role == "OFF" for p in a.players) + sum(t is None for t in unnamed)]
+        counts[offense_team] = offense
+        return counts[0], counts[1], counts[2]
+
     def explain(self, t0: float, t1: float) -> str:
         """Which receiver moved the value between two moments after the snap, and how."""
         if len(self.history) < 2:
@@ -304,6 +322,7 @@ class PlayAnalyzer(AnalysisView):
         self._known: dict[int, tuple] = {}   # slot id -> (time seen, position, velocity) of players with a role
         self._number_tries = 0
         self.roles: dict[int, str] = {}
+        self.lineup: dict[int, str] = {}     # the roles as they stand before the snap: only which side a man is on is used
         self.labels: dict[int, str] = {}
         self._numbers = ShotNumbers(self.number_reader) if self.number_reader is not None else None
         self._looks = ShotLooks(self.look_embedder) if self.look_embedder is not None else None
@@ -380,6 +399,7 @@ class PlayAnalyzer(AnalysisView):
             return
         xy = self.anchor.to_absolute(np.array([s.xy for s in slots]))
         roles = assign_roles(slots, xy, self.anchor.offense_team, self.anchor.los_abs, self._shotgun, self._hash, *self._listed)
+        self.lineup = roles
         look = describe_look(xy, [roles.get(s.id) for s in slots], self.anchor.los_abs, self._shotgun, self._hash, self._listed[1])
         if look[0]:
             self.look = look
@@ -697,6 +717,7 @@ class PlayAnalyzer(AnalysisView):
         if self._looks is not None:
             self._looks.update(frame, [p.box for p in mapped], [s.id for s in slots])
 
+        at_line = False
         if self.snap_t is None:
             self._recent.append((result.t, {s.id: s.xy.copy() for s in self.tracker.players}))
             while self._recent and result.t - self._recent[0][0] > 2.5:
@@ -726,11 +747,14 @@ class PlayAnalyzer(AnalysisView):
             xy_abs = self.anchor.to_absolute(np.array([s.xy for s in slots]))
             for p, s, q in zip(mapped, slots, xy_abs):
                 role = self.roles.get(s.id)
+                stands = role or (self.lineup.get(s.id) if at_line else None)    # before the snap, once they are lined up
                 team = s.team
-                if role in ("QB", "REC", "OL"):                 # where he lined up outvotes the colour of his shirt
+                if stands in ("QB", "REC", "OL"):               # where he lined up outvotes the colour of his shirt
                     team = self.anchor.offense_team
-                elif role in ("DEF", "DL"):
+                elif stands in ("DEF", "DL"):
                     team = 1 - self.anchor.offense_team
+                elif stands == "OFF":                           # an official or a stray: on neither team
+                    team = None
                 out.players.append(TrackedPlayer(
                     track_id=p.track_id, team=team, box=p.box, conf=p.conf, foot_px=p.foot_px,
                     field_yd=(float(q[0]), float(q[1])), role=role, label=self.labels.get(s.id), slot=s.id,
@@ -915,7 +939,7 @@ def live_stats(view: AnalysisView, value_model: PassValueModel | None = None, **
             return value_model.typical(clock, to_goal=view.to_goal())
     return LiveStats(value_fn=view.value, metrics_fn=view.rows, explain_fn=view.explain, baseline_fn=baseline,
                      value_clock_fn=view.value_clock, value_unit="yd", value_note_fn=view.value_note,
-                     team_names_fn=view.team_names, clock_text_fn=view.clock_text, rows_always=True,
+                     team_names_fn=view.team_names, team_counts_fn=view.team_counts, clock_text_fn=view.clock_text, rows_always=True,
                      value_needs_yards=False, delta_note="vs typical from here", **kwargs)
 
 

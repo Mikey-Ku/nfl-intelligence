@@ -111,6 +111,8 @@ class OverlayWindow(QWidget):
             for (ax, ay), (bx, by) in zip(pts, pts[1:]):
                 painter.drawLine(int(ax * s), int(ay * s), int(bx * s), int(by * s))
         for p in self.result.players:
+            if p.role == "OFF":                # officials and strays get no box
+                continue
             b, g, r = team_color(p.team)
             painter.setPen(QPen(QColor(r, g, b, 230), 2))
             x1, y1, x2, y2 = (v * s for v in p.box)

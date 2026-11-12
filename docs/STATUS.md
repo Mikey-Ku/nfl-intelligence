@@ -11,7 +11,7 @@ to see each of these for yourself on a run.
 |---|---|---|---|
 | Player detection and tracking | Working; fine-tuned detector available | 17-18 fps on 4K with full analysis; 0.72-0.98 yd and 84-94% found on five labelled plays from two games; linemen in a pile still merge and trade numbers | `nfl run --shots`, panel's Tracking block |
 | Team split by jersey colour | Working | | overlay colours |
-| Field mapping, sideline angle | Working, day and night | 70-100% of frames, 0.03-0.08 yd residual; 0.03-0.12 on the night game | `--shots` shows the fitted grid on the paint |
+| Field mapping, sideline angle | Working, day and night; short at the sidelines | 70-100% of frames, 0.03-0.08 yd residual on the lines it is fitted to; 0.03-0.12 on the night game; a sideline lands 1-3 yd inside where it is | `--shots` shows the fitted grid on the paint |
 | Field mapping, end-zone angle | Not mapped | long lens defeats the camera model | panel says "read from the sideline view" |
 | Play identified from the screen | Working, both NFL Pro layouts | every run and pass on all three games (49 and 29) | `play: ...` line while running; `matched` in the play log |
 | Anchoring to real yard lines | Working | 36 of 40 from the numbers, rest from the formation | `line of scrimmage ... settled by` line; `anchored_by` in the play log |
@@ -24,7 +24,7 @@ to see each of these for yourself on a run.
 | Throw grade | Experimental | throw moment within 0.6 s only 69% of the time | marked firm only when the rank holds |
 | Game table | Working | 621 player-plays over 42 plays on the test game | `nfl game-table` |
 | Detector fine-tuning | Done once, on 275 corrected frames | players found 80.5% → 91.1% on 55 held-out frames; see below | `nfl prelabel`, `nfl boxes`, `nfl train` |
-| Officials | Dropped by sight with the fine-tuned detector; by count and position with the stock one | boxes on an official 53 → 4 on the held-out frames | |
+| Officials and the bench | Officials dropped by sight with the fine-tuned detector, by count and position with the stock one, and given no box or team either way; the bench kept out by the border measured in yards | boxes on an official 53 → 4 on the held-out frames; a side on the panel is never more than eleven | |
 
 ## Role assignment in detail
 
@@ -124,7 +124,9 @@ against the same run (`outputs/v8`).
 | the brief's target | about 1 yd | | | at most 2 |
 
 Position meets the target on all five, and the play from the unseen game sits in the middle
-of the others. Most of the error is one steady offset of 0.66 to 0.88 yd across the field:
+of the others. What this measures is the tracked player against the same player clicked by
+hand, both put through the run's own field mapping; an error in the mapping itself does not
+show in it (see the sidelines, under Known limits). Most of the error is one steady offset of 0.66 to 0.88 yd across the field:
 the run places a player at the bottom of his box and the labeller clicks a little higher, the
 same on every player and every frame. Of 1,377 players the run placed on these frames, 3 were
 not players. The stock detector finds 58.9% of the players on the first play.
@@ -161,9 +163,10 @@ Five plays are a small sample, four of them from one game and one from the unsee
 Measured on three games, 78 runs and passes, 27 minutes of film. Reading the screen, pinning the field
 and reading the formation are solid, and they held on a game the models had never seen once
 two things that game exposed were fixed. The number that matters most, how far each tracked
-player is from where he really stood, has been measured on five hand-labelled plays from two games: 0.7 to
+player is from the same player clicked by hand, has been measured on five plays from two games: 0.7 to
 1.0 yard on every one, most of it a steady offset, and the same on the game no model had
-seen. Identities do not hold: 20 to 43 changes a play against a target of 2. So this is a
+seen. The field mapping under both is short at the sidelines by 1 to 3 yards, which that
+number does not include. Identities do not hold: 20 to 43 changes a play against a target of 2. So this is a
 working prototype whose position claim holds on a small sample and whose identity claim
 does not hold yet.
 
@@ -186,6 +189,8 @@ Measuring is finished; what would lift the project from here is in the next sect
 
 ## After that
 
+- The sideline border as a constraint in the camera fit, so the mapping is right across the
+  whole width (see Known limits). This comes before identity: it moves every position.
 - Identity through the pile: a player keeping one number from the snap to the whistle.
   Tuning the field tracker's gates and smoothing moved nothing, so this needs a different
   approach (the jersey numbers and looks used inside a play, not only between plays). The
@@ -203,6 +208,15 @@ tracker. The throw grade stays rough for that reason.
 
 ## Known limits
 
+- **The mapping is short at the sidelines.** The camera is fitted to the yard lines and the
+  two hash rows, which are six yards apart in the middle of the field, and carried out from
+  there to sidelines 24 yards away. Measured 2026-11-12 by finding the white border through
+  the mapping: the far sideline's inner edge lands 0.7 yd (`live-02`), 1.1 yd (`live-06`)
+  and 3.0 yd (`live-04`) inside where it is, and the near one 0.1 to 2.2 yd inside on the
+  few frames that show it. So a player near a sideline is off by that much across the
+  field; near the hashes he is not. The fix is to give the camera fit the border as a
+  constraint. Until then the on-field test uses the border where the mapping puts it, so
+  the bench is kept out whatever the error.
 - **Linemen in a pile** come out as a few boxes, so heavy formations read roughly (a
   goal-line run charted with seven in the box read eight).
 - **Dark jerseys** are hardly read by the number reader yet; the labelled training set was

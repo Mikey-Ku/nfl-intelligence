@@ -184,6 +184,21 @@ class View:
     boxes: np.ndarray | None                 # players' boxes in working pixels
 
 
+def header_rows(frame: np.ndarray, grass: np.ndarray, rect: tuple[int, int, int, int]) -> int:
+    """How many rows at the top of the video are the newer player's score strip, not film:
+    rows of flat colour that aren't grass, on the left third and the right third alike."""
+    x1, y1, x2, y2 = rect
+    n, third = int(0.10 * (y2 - y1)), (x2 - x1) // 3
+    if n < 4 or third < 8:
+        return 0
+    top = frame[y1 : y1 + n, x1:x2].astype(np.int16)
+    change = np.abs(np.diff(top, axis=1)).max(axis=2)
+    flat = (np.median(change[:, :third], axis=1) < 2.0) & (np.median(change[:, -third:], axis=1) < 2.0)
+    strip = flat & (grass[y1 : y1 + n, x1:x2].mean(axis=1) <= 0.2)
+    k = int(np.argmin(strip)) if not strip.all() else n
+    return k if k >= 0.03 * (y2 - y1) else 0
+
+
 def prepare(frame: np.ndarray, field_info, boxes: np.ndarray | None, width: int, rect=None, img: np.ndarray | None = None,
             soft: bool = False) -> View | None:
     rect = rect or video_rect(frame, field_info.band, field_info.grass)

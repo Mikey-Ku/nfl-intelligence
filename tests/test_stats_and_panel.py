@@ -103,3 +103,14 @@ def test_camera_cut_starts_a_new_play():
         snap = stats.update(f)
     assert snap.play == 2 and snap.reacquired == 0 and snap.lost == 0
     assert snap.play_clock == pytest.approx(9 / 20)
+
+
+def test_a_side_is_never_more_than_eleven():
+    stats = LiveStats()
+    for i in range(10):
+        snap = stats.update(_frame(i, range(22), teams=[0, 0, 0, 1]))        # officials and the bench dressed like one team
+    assert snap.team_counts == (11, 5, 6) and snap.on_field == 22          # 17 and 5 by jersey: six of the 17 are somebody else
+    stats = LiveStats(team_counts_fn=lambda: (11, 11, 1))                     # the caller knows the eleven a side
+    for i in range(10):
+        snap = stats.update(_frame(i, range(16), teams=[0, 1]))               # though only 16 are in sight just now
+    assert snap.team_counts == (11, 11, 1) and snap.on_field == 23
