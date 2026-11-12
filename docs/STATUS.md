@@ -1,6 +1,6 @@
 # Project status
 
-Last updated 2026-11-11. "Measured" means a number checked against charting, tracking data
+Last updated 2026-11-12. "Measured" means a number checked against charting, tracking data
 or by eye on frames; "by eye" means no ground truth exists yet. [SHOWCASE.md](SHOWCASE.md)
 says where each number comes from; [USAGE.md](USAGE.md#how-to-know-it-is-working) says how
 to see each of these for yourself on a run.
@@ -9,8 +9,9 @@ to see each of these for yourself on a run.
 
 | Capability | Status | Measured | How to check |
 |---|---|---|---|
-| Player detection and tracking | Working; fine-tuned detector available | 17-18 fps on 4K with full analysis; 0.72-0.98 yd and 84-94% found on five labelled plays from two games; linemen in a pile still merge and trade numbers | `nfl run --shots`, the panel's tracking line |
-| Team split by jersey colour | Working | | overlay colours |
+| Player detection and tracking | Working; fine-tuned detector available | 17-18 fps on 4K with full analysis; 0.72-0.98 yd and 84-94% found on five labelled plays from two games; 0.89 yd on the wider field; identity 16-40 counted changes a play on those five, part of it the labels (see Hand-labelled truth) | `nfl run --shots`, the panel's tracking line |
+| Team split by jersey colour | Working before the snap; after it the tracker goes by the kits | right about two boxes in three after the snap on dark jerseys with big white numbers | overlay colours |
+| Which team a box shows (kits) | Working | taught each play by the line-up; players' identities sit on a box in the other side's kit for 0.3 player-seconds a play over 66 plays (about 13 on five plays replayed with the old matching) | `kits` in the play log |
 | Field mapping, sideline angle | Working, day and night, across the whole width | 70-100% of frames; the far sideline lands within 0.1 yd of where it is and the near one within 0.4 (they were 0.7-3.0 yd inside); the hash marks and the sidelines are each left 0.2-0.35 yd off by the one camera that fits both | `--shots` shows the fitted grid on the paint |
 | Field mapping, end-zone angle | Not mapped | long lens defeats the camera model | panel says "read from the sideline view" |
 | Play identified from the screen | Working, both NFL Pro layouts | every run and pass on all three games (49 and 29) | `play: ...` line while running; `matched` in the play log |
@@ -92,20 +93,19 @@ against the charting:
 |---|---|---|
 | runs and passes worked out, of those identified | 43 of 49 | 24 of 29 |
 | quarterback named | 42 of 42 | 24 of 24 |
-| passes given a value | 24 of 24 | 11 of 12 |
-| throw found | 13 of 24 | 5 of 12 |
-| backs in the backfield, exact (within one) | 36 (42) of 42 | 17 (23) of 24 |
-| defenders in the box, exact (within one) | 23 (41) of 42 | 8 (21) of 24 |
-| pass rushers, exact (within one) | 16 (24) of 24 | 5 (9) of 12 |
-| players named by number, a play | 5.7 | 0.7 |
+| passes given a value | 24 of 24 | 12 of 12 |
+| throw found | 15 of 24 | 7 of 12 |
+| backs in the backfield, exact (within one) | 37 (42) of 42 | 18 (24) of 24 |
+| defenders in the box, exact (within one) | 28 (42) of 42 | 8 (21) of 24 |
+| pass rushers, exact (within one) | 14 (24) of 24 | 5 (10) of 12 |
+| players named by number, a play | 6.6 | 0.8 |
 
 What carries over: reading the screen, the mapping, the snap, the quarterback, the value.
 What does not yet: exact counts in the box and of rushers, and names. The number reader has
 seen almost no purple or teal-trimmed shirts, and the look memory is trained per game and
-was not trained on this one. (These are from `outputs/v12`, with the field mapped at its
-true width; before that, on `outputs/v8`, the throw was found on 14 of 24 and 8 of 12. The
-eight passes that changed, six lost and two gained, each come down to a receiver's track
-being lost or named differently in the new run: identity, not the mapping.) Of the five plays not worked out, two are snaps from the
+was not trained on this one. (These are from `outputs/v13`, with the identity work of 2026-11-12 described below. On
+`outputs/v12`, before it, the throw was found on 13 of 24 and 5 of 12, the box was exact on
+23 of 42, and pass rushers were exact on 16 of 24: that last one went down by two.) Of the five plays not worked out, two are snaps from the
 1-yard line, where half the players are lost in the pile, and two are cut off by the ends
 of the clip.
 
@@ -114,16 +114,16 @@ of the clip.
 Five plays so far, four from the Panthers at Browns game the detector was trained on and one
 from the Jaguars at Ravens night game it never saw: 14 frames each, from a second before the
 snap to six after, every player's feet clicked with `nfl truth` and scored with `nfl eval`
-against the same run (`outputs/v12`).
+against the same run (`outputs/v13`).
 
 | play | position error | around the steady offset | players found | identity changes |
 |---|---|---|---|---|
-| Panthers 2nd and 15, a pass (`live-02` shot 3) | 1.02 yd | 0.38 yd | 91.7% | 24 |
-| Panthers 1st and 10, a run (`live-02` shot 5) | 0.93 yd | 0.40 yd | 83.8% | 42 |
-| Panthers 1st and 10, a pass (`live-04` shot 22) | 0.89 yd | 0.35 yd | 91.8% | 26 |
-| Browns 3rd and 2, a run (`live-04` shot 48) | 0.78 yd | 0.34 yd | 94.1% | 24 |
-| Ravens 1st and 10, a run, the unseen game (`live-06` shot 22) | 0.84 yd | 0.36 yd | 87.3% | 22 |
-| all five | 0.89 yd | 0.37 yd | 89.7% of 1,531 | 28 a play |
+| Panthers 2nd and 15, a pass (`live-02` shot 3) | 1.02 yd | 0.38 yd | 91.7% | 17 |
+| Panthers 1st and 10, a run (`live-02` shot 5) | 0.93 yd | 0.41 yd | 83.8% | 40 |
+| Panthers 1st and 10, a pass (`live-04` shot 22) | 0.89 yd | 0.35 yd | 91.8% | 18 |
+| Browns 3rd and 2, a run (`live-04` shot 48) | 0.78 yd | 0.34 yd | 93.8% | 21 |
+| Ravens 1st and 10, a run, the unseen game (`live-06` shot 22) | 0.84 yd | 0.36 yd | 87.3% | 16 |
+| all five | 0.89 yd | 0.37 yd | 89.7% of 1,531 | 22 a play (it was 28) |
 | the brief's target | about 1 yd | | | at most 2 |
 
 Position meets the target on all five, and the play from the unseen game sits in the middle
@@ -134,7 +134,7 @@ this table saying so (see Known limits). With the field at its true width the sa
 in the picture are more yards: these five read 0.72 to 0.98 before, 0.82 together. Most of
 the error is one steady offset of 0.71 to 0.92 yd across the field:
 the run places a player at the bottom of his box and the labeller clicks a little higher, the
-same on every player and every frame. Of 1,377 players the run placed on these frames, 3 were
+same on every player and every frame. Of 1,377 players the run placed on these frames, 4 were
 not players. The stock detector finds 58.9% of the players on the first play.
 
 Identity is the miss. The first play scored 61 changes at first, and looking into it found
@@ -158,9 +158,62 @@ in a quarter a later play is not anchored the other way. Three of 66 plays had b
 wrong way round; now every play found in the play-by-play goes the way of its drive. (One
 play the play-by-play does not have still disagrees with its neighbours.)
 
-Identity misses the target on all five, passes and runs alike (22 to 42 changes against a
-target of 2), so the first play, the one the fixes were worked out on, was the low end and not the norm. More labelled
-plays would measure that more finely; they would not change it.
+Identity missed the target on all five, passes and runs alike (22 to 42 changes against a
+target of 2 on `outputs/v12`), so the first play, the one the fixes were worked out on, was
+the low end and not the norm.
+
+### Identity, taken apart (2026-11-12)
+
+The count mixes three things, and telling them apart is what moved it.
+
+**The labels.** `nfl truth` numbers each frame by pairing the clicks with the nearest
+positions on the frame before, half a second earlier, and the labeller corrects what he
+sees. In a pile that pairing trades players. Checked against the kits (below), on 16 of the
+changes still counted the label itself has moved to a man of the other team, or the scoring
+has paired it with his box. So some of the count is not the tracker's, and with these labels
+it cannot reach 2.
+
+**The picture tracker's box.** When two players lock up, the image tracker's box slides
+from one to the other and keeps its number, and the yard-space tracker followed the number.
+Strips of one slot's box, frame after frame, show a Panthers lineman's slot on a Browns
+player from three seconds in to the whistle, on one unbroken image track. It happens to
+receivers and defensive backs in tight coverage as well as linemen.
+
+**The matching.** Leaving a known player without a box cost more than any match at all, so
+the assignment matched as many as it could: a player whose box went missing took his
+neighbour's, and the neighbour was pushed off an unbroken track onto a third box.
+
+What says which man a box shows is his kit, and the jersey split could not be asked: it
+votes per image track, and after the snap it is right about two boxes in three on a team in
+dark jerseys with large white numbers. The line-up can teach it instead. Before the snap
+the teams stand on opposite sides of the ball, so each box is a labelled picture of one
+kit: helmet, jersey and pants. A small classifier fitted on the last 2.5 seconds of those
+(`kits.py`) reads every later box. On a player who stays clear of the pile it agrees with
+his side on practically every frame, and where it disagrees for a stretch the strips show
+the other team's man in the box.
+
+Two changes in `fieldtrack.py`: going without a box for a frame has a price of 3.5 yards,
+and a player is not put on a box in the other side's kit while anything else will do. A
+third in `roles.py` came out of the first two: a twelfth slot standing among the eleven is
+the tracker's second slot on one of them, and it now goes before a man in plain sight (it
+had cost one play its quarterback).
+
+| | before (`outputs/v12`) | after (`outputs/v13`) |
+|---|---|---|
+| player-seconds a play on a box in the other side's kit, five labelled plays replayed | 12.7 | 0.0 |
+| the same in the play logs, all 66 plays | | 0.33 (0.3% of the time a kit was read) |
+| identity changes counted on the five labelled plays | 138 | 112 |
+| of those, the tracker's slot on a man of the other team (in the replay) | 11 | 0 |
+| throw found, of 36 passes | 18 | 22 |
+| passes given a value | 35 | 36 |
+| backs in the backfield, exact, of 66 | 53 | 55 |
+| defenders in the box, exact (within one), of 66 | 31 (62) | 36 (63) |
+| pass rushers, exact (within one), of 36 | 21 (33) | 19 (34) |
+| position error and players found on the five | 0.89 yd, 89.7% | the same |
+
+What is left in the count is players of one team trading places in the pile, which the
+kits cannot see, and the labels. Telling those two apart needs jersey numbers read inside
+the play or labels made with the identities checked by eye; neither is done.
 
 Five plays are a small sample, four of them from one game and one from the unseen game.
 
@@ -172,9 +225,12 @@ two things that game exposed were fixed. The number that matters most, how far e
 player is from the same player clicked by hand, has been measured on five plays from two games: 0.7 to
 1.0 yard on every one, most of it a steady offset, and the same on the game no model had
 seen. The field mapping under both was a tenth too narrow until 2026-11-12; it now puts
-the sidelines within 0.4 yd of where they are. Identities do not hold: 22 to 42 changes a play against a target of 2. So this is a
+the sidelines within 0.4 yd of where they are. Identity was taken apart the same day: a
+player's identity no longer follows a box onto a man of the other team (13 player-seconds a
+play of that, now none), and the count against the labels went from 28 a play to 22, part
+of which is the labels. Teammates trading places in a pile are not solved. So this is a
 working prototype whose position claim holds on a small sample and whose identity claim
-does not hold yet.
+holds between the teams and not within one.
 
 ## The bar for a first release: closed 2026-11-11
 
@@ -183,22 +239,25 @@ The brief's own success criteria, plus the detector:
 1. **Truth on hand-labelled plays.** The bar was 20 plays; it was closed at five. Target
    from the brief: about 1 yard mean error, at most 2 identity swaps a play. The first is
    met on all five, with too little spread between plays for fifteen more to move it. The
-   second is met on none, and that is tracker work, not labelling.
+   second is met on none: 16 to 40 a play after the identity work of 2026-11-12, and the
+   labels themselves trade players in a pile, so this count will not show 2 whatever the
+   tracker does.
 2. **Detector fine-tuned.** Done 2026-11-10 on 275 corrected frames; the numbers are
    above.
 3. **A third game.** Done 2026-11-11: a night game, dark home jerseys, another stadium.
    What broke and the numbers are above.
 
 The README carries the result as tiles: 0.89 yd on five labelled plays, and the identity
-changes beside it. The word "prototype" stays, because the identity target is not met.
+count beside it. The word "prototype" stays, because the identity target is not met.
 Measuring is finished; what would lift the project from here is in the next section.
 
 ## After that
 
-- Identity through the pile: a player keeping one number from the snap to the whistle.
-  Tuning the field tracker's gates and smoothing moved nothing, so this needs a different
-  approach (the jersey numbers and looks used inside a play, not only between plays). The
-  five labelled plays are the test for it.
+- Identity among teammates in the pile: linemen of one side trading places. The kits settle
+  which team a box shows and nothing more, so this needs the jersey numbers and looks used
+  inside a play. It also needs a better test than the five labelled plays, whose own
+  numbering trades players there: a few plays with every identity checked by eye, or the
+  count of numbers read on a slot that disagree with each other.
 - Crop-level "readable" labels for dark jerseys (a few hundred crops) so the number reader
   learns them; today it names almost only light shirts.
 - Ground truth for the looks, so the 85% stops being an eye estimate.

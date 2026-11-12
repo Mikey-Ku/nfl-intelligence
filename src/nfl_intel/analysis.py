@@ -26,6 +26,7 @@ from .field import FIELD_WIDTH
 from .fieldnumbers import flatten, goal_line, read_numbers
 from .fieldtrack import FieldTracker, SnapDetector
 from .jersey import ShotNumbers
+from .kits import KitReader, kit_feature
 from .looks import LookBook, ShotLooks
 from .personnel import BACKFIELD, BACKS, D_LINE, LINEBACKERS, LINEMEN, name_players
 from .playinfo import PlayRecord, match_play, read_screen
@@ -38,6 +39,8 @@ LIVE_FOR = 4.5                # seconds after the snap that "best throw availabl
 FORMATION_AT = 0.1            # roles are read from where players stood this long before the snap
 LOOK_EVERY = 8                # mapped frames between pre-snap reads of the formation
 NUMBERS_EVERY = 15            # mapped frames between looks at who the jersey numbers say is who
+UNSEEN = 0.3                  # a slot with no box for this long at the line-up may be a second slot on a man who has one
+KIT_LESSON = 2.5              # seconds of line-up before the snap that teach the kit reader the two teams
 OFFENSE_ROLES = ("QB", "REC", "OL")
 DEFENSE_ROLES = ("DEF", "DL")
 ROLE_POSITIONS = {"QB": {"QB"}, "REC": BACKS | {"WR", "TE"}, "OL": LINEMEN | {""},      # which roster positions a role can be
@@ -327,6 +330,8 @@ class PlayAnalyzer(AnalysisView):
         out["names"] = sorted(v for v in self.labels.values() if v != "QB" and not (v[0] in "RD" and (v[1:].isdigit() or v[1:] == "?")))
         out["numbers"] = {p.last_name: p.number for p in self.by_number.values()}
         out["looks"] = {p.last_name: p.number for p in self.by_look.values()}
+        if self._kits.fitted:           # how long named players' boxes showed a clear kit, and how much of that was the other side's
+            out["kits"] = {"read_s": round(self._kit_time[0], 1), "other_side_s": round(self._kit_time[1], 2)}
         if self.history:
             to_goal = None if a is None else 110.0 - a.los_abs
             curve = []
@@ -365,6 +370,10 @@ class PlayAnalyzer(AnalysisView):
         self.lineup: dict[int, str] = {}     # the roles as they stand before the snap: only which side a man is on is used
         self.labels: dict[int, str] = {}
         self._numbers = ShotNumbers(self.number_reader) if self.number_reader is not None else None
+        self._kits = KitReader()             # which team a box shows, taught at the snap by where everyone lined up
+        self._kit_seen: list[tuple[float, int, np.ndarray]] = []     # (time, slot, what his box showed) before the snap
+        self._kit_time = [0.0, 0.0]          # player-seconds a clear kit was read on a named player's box; of those, the wrong one
+        self._kit_t: float | None = None
         self._looks = ShotLooks(self.look_embedder) if self.look_embedder is not None else None
         self.by_number: dict[int, object] = {}       # slot id -> personnel.Listed, from the jersey number
         self.by_look: dict[int, object] = {}         # slot id -> personnel.Listed, from his look on earlier plays
@@ -438,7 +447,8 @@ class PlayAnalyzer(AnalysisView):
         if len(slots) < 10:
             return
         xy = self.anchor.to_absolute(np.array([s.xy for s in slots]))
-        roles = assign_roles(slots, xy, self.anchor.offense_team, self.anchor.los_abs, self._shotgun, self._hash, *self._listed)
+        roles = assign_roles(slots, xy, self.anchor.offense_team, self.anchor.los_abs, self._shotgun, self._hash, *self._listed,
+                             doubtful={s.id for s in slots if s.t - s.seen > UNSEEN})
         self.lineup = roles
         look = describe_look(xy, [roles.get(s.id) for s in slots], self.anchor.los_abs, self._shotgun, self._hash, self._listed[1])
         if look[0]:
@@ -475,12 +485,23 @@ class PlayAnalyzer(AnalysisView):
             slots = self.tracker.players
             stood = {s.id: s.xy for s in slots}
         xy = self.anchor.to_absolute(np.array([stood[s.id] for s in slots]))
-        self.roles = assign_roles(slots, xy, self.anchor.offense_team, self.anchor.los_abs, self._shotgun, self._hash, *self._listed)
+        self.roles = assign_roles(slots, xy, self.anchor.offense_team, self.anchor.los_abs, self._shotgun, self._hash, *self._listed,
+                                  doubtful={s.id for s in slots if s.seen < want - UNSEEN})
         self.at_snap = {s.id: p for s, p in zip(slots, xy)}
         look = describe_look(xy, [self.roles.get(s.id) for s in slots], self.anchor.los_abs, self._shotgun, self._hash, self._listed[1])
         if look[0]:
             self.look = look
         self._relabel()
+        self._teach_kits()
+
+    def _teach_kits(self) -> None:
+        """The boxes of the last seconds before the snap, each labelled with the side its man
+        turned out to be on, teach the reader the two kits."""
+        side = {sid: 0 if role in OFFENSE_ROLES else 1 for sid, role in self.roles.items() if role in OFFENSE_ROLES + DEFENSE_ROLES}
+        lesson = [(f, side[sid]) for t, sid, f in self._kit_seen if sid in side and self.snap_t - KIT_LESSON <= t <= self.snap_t - 0.1]
+        if lesson:
+            self._kits.fit([f for f, _ in lesson], [k for _, k in lesson])
+        self._kit_seen = []
 
     def _relabel(self) -> None:
         """Receivers and defenders are numbered across the field, from the offense's left."""
@@ -781,9 +802,28 @@ class PlayAnalyzer(AnalysisView):
         loose = [p for p in getattr(result, "loose", []) if p.field_yd is not None]
         both = mapped + loose
         xy_rel = np.array([p.field_yd for p in both])
+        kits = None
+        if self._kits.fitted or (self.snap_t is None and self.anchor is not None):
+            grass = getattr(field_info, "grass_lab", None)
+            shown = [kit_feature(frame, p.box, grass) for p in both]
+        if self._kits.fitted:
+            kits = self._kits.read(shown)
+            for s in self.tracker.slots:                         # a player wears the kit of the side his role is on
+                role = self.roles.get(s.id)
+                s.kit = 0 if role in OFFENSE_ROLES else 1 if role in DEFENSE_ROLES else None
         slots = self.tracker.update(result.t, xy_rel, [p.team for p in both], [p.track_id if p.track_id >= 0 else None for p in both],
-                                    confirmed=[True] * len(mapped) + [False] * len(loose))
+                                    confirmed=[True] * len(mapped) + [False] * len(loose), kits=kits)
         loose_slots, slots = slots[len(mapped):], slots[: len(mapped)]
+        if kits is not None:
+            dt, self._kit_t = (result.t - self._kit_t if self._kit_t is not None else 0.0), result.t
+            if 0.0 < dt < 0.5:
+                clear = [k == s.kit for s, k in zip(slots, kits) if s.kit is not None and k is not None]
+                self._kit_time[0] += dt * len(clear)
+                self._kit_time[1] += dt * (len(clear) - sum(clear))
+        if self.snap_t is None and self.anchor is not None:
+            self._kit_seen += [(result.t, s.id, f) for s, f in zip(slots, shown) if f is not None]
+            while self._kit_seen and result.t - self._kit_seen[0][0] > KIT_LESSON + 1.0:
+                self._kit_seen.pop(0)
         if self._numbers is not None:
             self._numbers.update(frame, [p.box for p in mapped], [s.id for s in slots])
         if self._looks is not None:

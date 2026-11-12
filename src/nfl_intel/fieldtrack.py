@@ -12,6 +12,13 @@ Tight coverage is the hard case: a receiver and the man on him overlap in the pi
 the detector returns one box for the two of them. The one that went missing is then carried
 along with the one still seen, at the offset he had, until the detector can tell them apart
 again. Without that the defender would vanish and his receiver would look wide open.
+
+The pile is the other hard case. The image tracker's box slides from a blocker to the man
+he is locked up with and keeps its number, and a player whose box goes missing would take
+his neighbour's. Two things hold identities there: going without a box for a frame has a
+price, so nobody is pushed off his own box to make room, and once the caller can say which
+team a box shows (`kits`), a player is not put on a box in the other team's kit while
+anything else will do.
 """
 
 from __future__ import annotations
@@ -22,6 +29,8 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 MAX_SPEED = 12.0            # yards per second; nobody on a football field is faster
+KIT_SETTLED = 6             # clear looks at a player's kit before it counts as known, when nobody has told us
+KIT_MEMORY = 40             # ...and how many are remembered
 
 
 @dataclass
@@ -37,6 +46,8 @@ class Slot:
     role: str | None = None
     label: str | None = None
     team_votes: list = field(default_factory=lambda: [0, 0])
+    kit: int | None = None                  # the side whose kit he wears, when the caller knows (he lined up there)
+    kit_votes: list = field(default_factory=lambda: [0.0, 0.0])    # else what his own boxes have shown
     track_id: int | None = None             # the image tracker's id, for drawing
     partner: int | None = None              # the slot this one is hidden behind, while the detector sees one box for both
     twin: int | None = None                 # the slot this one was born on top of: a second box on the same man, most likely
@@ -49,11 +60,28 @@ class Slot:
     def speed(self) -> float:
         return float(np.linalg.norm(self.v))
 
+    @property
+    def wears(self) -> int | None:
+        """The kit this player is in: as told, else as seen once that is settled."""
+        if self.kit is not None:
+            return self.kit
+        n = sum(self.kit_votes)
+        if n < KIT_SETTLED:
+            return None
+        k = int(np.argmax(self.kit_votes))
+        return k if self.kit_votes[k] >= 0.75 * n else None
+
 
 class FieldTracker:
     def __init__(self, gate: float = 2.5, coast: float = 1.0, smooth: float = 0.45, velocity_window: float = 0.4,
                  team_penalty: float = 2.0, min_hits: int = 3, merge_within: float = 2.0, hidden_for: float = 3.0,
-                 same_track: float = 2.0):
+                 same_track: float = 2.0, wrong_kit: float = 3.0, unmatched: float | None = 3.5):
+        self.wrong_kit = wrong_kit            # yards added to the cost of putting a player on a box that shows the
+                                              # other team's kit; such a box gets no credit for an unbroken track either
+        self.unmatched = unmatched            # what it costs to leave a known player without a box this frame, in
+                                              # yards. With no price on it the assignment matches as many players as
+                                              # it can: a player whose box is missing takes his neighbour's, and the
+                                              # neighbour is pushed onto a third box, unbroken track or not
         self.double_box = 1.0                 # an unconfirmed detection this close to a confirmed one is the same man
         self.clear_of = 1.5                   # ...and one this far from every known player may start a new one
         self.twin_for = 1.5                   # seconds a slot born on top of another is watched as its double
@@ -77,7 +105,7 @@ class FieldTracker:
         self.slots, self._next, self._history = [], 0, {}
 
     def update(self, t: float, xy: np.ndarray, teams: list, track_ids: list | None = None,
-               confirmed: list[bool] | None = None) -> list[Slot | None]:
+               confirmed: list[bool] | None = None, kits: list | None = None) -> list[Slot | None]:
         """Match this frame's detections to slots. Returns, for each detection, its slot.
 
         `confirmed` says which detections the image tracker stands behind. The others (a box
@@ -87,6 +115,11 @@ class FieldTracker:
         dropped, and one beside a known player starts nothing: nearly all of those are a
         second box on the same man, and a slot made from one steals his number later. Their
         slot comes back as None.
+
+        `kits` is the side whose kit each box shows in this frame, None where that isn't
+        clear. `teams` is the image track's jersey vote, which stays with the track when the
+        track moves to another man; where both a player's kit and a box's are known, the kit
+        decides.
         """
         xy = np.asarray(xy, dtype=np.float64).reshape(-1, 2)
         assigned: list[Slot | None] = [None] * len(xy)
@@ -102,24 +135,36 @@ class FieldTracker:
             pred = np.array([s.predict(t) for s in live])
             cost = np.linalg.norm(pred[:, None, :] - xy[None, :, :], axis=2)
             cost[:, ~use] = 1e6
+            other = np.zeros(cost.shape, bool)                  # this box shows the other team's kit
             for i, s in enumerate(live):
                 allowed = self.gate + MAX_SPEED * 0.25 * min(1.0, t - s.seen)      # unseen slots may have drifted
+                wears = s.wears if kits is not None else None
                 for j in range(len(xy)):
                     if cost[i, j] > allowed or not use[j]:
                         cost[i, j] = 1e6
+                    elif wears is not None and kits[j] is not None:
+                        if kits[j] != wears:
+                            cost[i, j] += self.wrong_kit
+                            other[i, j] = True
                     elif s.team is not None and teams[j] is not None and teams[j] != s.team:
                         cost[i, j] += self.team_penalty
             if track_ids is not None and self.same_track:
                 held = {s.track_id: i for i, s in enumerate(live) if s.track_id is not None and t - s.seen <= 0.5}
                 for j, tid in enumerate(track_ids):
                     i = held.get(tid) if tid is not None else None
-                    if i is not None and cost[i, j] < 1e5:
+                    if i is not None and cost[i, j] < 1e5 and not other[i, j]:
                         cost[i, j] -= self.same_track
-            rows, cols = linear_sum_assignment(cost)
+            if self.unmatched is None:
+                rows, cols = linear_sum_assignment(cost)
+            else:                                           # a spare column for each slot: going without a box, at a price
+                rows, cols = linear_sum_assignment(np.hstack([cost, np.full((len(live), len(live)), self.unmatched)]))
+                real = cols < len(xy)
+                rows, cols = rows[real], cols[real]
             for i, j in zip(rows, cols):
                 if cost[i, j] >= 1e5 - 100:
                     continue
                 self._absorb(live[i], t, xy[j], teams[j], None if track_ids is None else track_ids[j])
+                self._saw_kit(live[i], None if kits is None else kits[j])
                 assigned[j] = live[i]
         taken = [s for s in assigned if s is not None]
         for j in range(len(xy)):
@@ -132,6 +177,7 @@ class FieldTracker:
                     s.twin = on.id
                 if teams[j] in (0, 1):
                     s.team_votes[teams[j]] += 1
+                self._saw_kit(s, None if kits is None else kits[j])
                 self._next += 1
                 self._history[s.id] = [(t, xy[j].copy())]
                 self.slots.append(s)
@@ -159,6 +205,15 @@ class FieldTracker:
             del self._history[sid]
         return assigned
 
+    @staticmethod
+    def _saw_kit(s: Slot, kit) -> None:
+        if kit not in (0, 1):
+            return
+        s.kit_votes[kit] += 1.0
+        n = sum(s.kit_votes)
+        if n > KIT_MEMORY:
+            s.kit_votes = [v * KIT_MEMORY / n for v in s.kit_votes]
+
     def _settle_twins(self, t: float) -> None:
         """A slot born on top of another is usually the image tracker starting a second track
         on the same man. If the older track then stops, the man is the new slot: it takes the
@@ -175,6 +230,7 @@ class FieldTracker:
                 s.id, old.id = old.id, s.id
                 s.role, s.label, old.role, old.label = old.role, old.label, None, None
                 s.hits, s.team_votes, s.team = s.hits + old.hits, old.team_votes, old.team if old.team is not None else s.team
+                s.kit, s.kit_votes, old.kit = old.kit, old.kit_votes, None
                 self._history[s.id], self._history[old.id] = self._history.get(old.id, []), self._history.get(s.id, [])
                 old.seen = t - 10.0 * self.hidden_for            # the stand-in is done
                 s.twin = None

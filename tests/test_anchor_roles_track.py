@@ -493,3 +493,27 @@ def test_the_direction_from_earlier_in_the_quarter_outranks_the_formation():
     # and the paint, when it is read on this play, still has the last word
     painted = anchor_play(x, team, 15.0, end_zone=(25.0, -1), source="painted numbers", known=1)
     assert painted.source == "painted numbers" and painted.direction == -1
+
+
+def test_a_twelfth_slot_nobody_has_seen_is_dropped_before_a_man_in_plain_sight():
+    from nfl_intel.fieldtrack import Slot
+    from nfl_intel.roles import assign_roles
+
+    def man(i, x, y, team):
+        return Slot(i, np.array([x, y]), np.zeros(2), team, 0.0, 0.0, 0.0, hits=50)
+
+    los = 50.0
+    offense = [man(0, 45.0, 26.0, 1)] + [man(1 + k, 48.6, 22.0 + 2.0 * k, 1) for k in range(5)] \
+        + [man(6, 49.0, 8.0, 1), man(7, 49.0, 44.0, 1), man(8, 48.5, 36.0, 1), man(9, 44.5, 22.0, 1), man(10, 44.5, 30.0, 1)]
+    ghost = man(11, 44.3, 21.0, 1)                                            # a second slot beside the back, riding with him
+    defense = [man(20 + k, 51.0 + (k % 3) * 3.0, 14.0 + 2.6 * k, 0) for k in range(11)]
+    slots = [ghost] + offense + defense
+    xy = np.array([s.xy for s in slots])
+    told = assign_roles(slots, xy, 1, los, doubtful={11})
+    assert told[11] == "OFF" and told[0] == "QB" and list(told.values()).count("OL") == 5
+    ghost.hits = 20                                                           # in plain sight, but tracked for less time than the rest:
+    newer = assign_roles(slots, xy, 1, los)                                   # the second slot started on a man goes before the men
+    assert newer[11] == "OFF" and newer[0] == "QB"
+    ghost.hits = 50
+    untold = assign_roles(slots, xy, 1, los)                                  # with nothing to go on, whoever is last in the list goes: a real back
+    assert untold[11] != "OFF" and untold[10] == "OFF"
