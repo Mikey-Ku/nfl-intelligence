@@ -40,7 +40,7 @@ screen ─► YOLO ─► BoT-SORT ─► jersey split ─► field mapping ─�
 
 Everything below is measured, and the note says where it came from.
 
-**On film** (two games, about 17 minutes, 45 runs and passes; `nfl plays-check` against
+**On film, stock detector** (two games, about 17 minutes, 45 runs and passes; `nfl plays-check` against
 FTN's official charting, 2026 week 3):
 
 | | |
@@ -54,6 +54,37 @@ FTN's official charting, 2026 week 3):
 | Pass rushers, within one | 21 of 24 (exact 6) |
 | Shotgun vs under centre, from the formation alone | 26 of 40 |
 | Throughput on a 3024x1654 capture, Apple M5 | about 17 frames a second |
+
+**On film, three games** (the two above and a night game no model was trained on; 78 runs
+and passes, 27 minutes; the detector fine-tuned on 275 hand-corrected frames, passed with
+`--weights`; `nfl plays-check` on `outputs/v8`, 2026-11-11):
+
+| | games it was built on | third game |
+|---|---|---|
+| Plays identified in the play-by-play from the screen | 49 of 49 | 29 of 29 |
+| Quarterback picked out | 42 of 42 | 23 of 24 |
+| Passes given a live value | 24 of 24 | 10 of 12 |
+| Backs in the backfield, within one | 42 of 42 (exact 36) | 24 of 24 (exact 16) |
+| Defenders in the box, within one | 41 of 42 (exact 23) | 19 of 24 (exact 10) |
+| Pass rushers, within one | 23 of 24 (exact 14) | 10 of 12 (exact 4) |
+
+Over all three, 57 of 66 plays were anchored from the painted numbers and the other 9 from
+the direction the drive had already shown. Players found by the detector on 55 held-out
+frames: 80.5% stock, 91.1% fine-tuned.
+
+**Against positions labelled by hand** (`nfl truth`, then `nfl eval` on `outputs/v8`; five
+plays of 14 frames each, four from Panthers at Browns and one from the unseen night game):
+
+| | |
+|---|---|
+| Position error, mean of the five plays | 0.82 yd (0.72 to 0.98) |
+| The same with the steady foot-point offset removed | 0.35 yd (0.32 to 0.37) |
+| Labelled player positions found | 89.7% of 1,531 |
+| Placed players that were not players | 3 of 1,377 |
+| Identity changes a play | 28 (20 to 43); the target is 2 |
+
+Five plays are a small sample. Position held on every one, the unseen game included;
+identity held on none.
 
 **The models** (held-out weeks 15-18 of the 2023 season, `nfl value-train`):
 
