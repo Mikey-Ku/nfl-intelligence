@@ -7,7 +7,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">
   <img src="https://img.shields.io/badge/built%20on-Apple%20silicon-000000?logo=apple&logoColor=white" alt="Built on Apple silicon">
-  <img src="https://img.shields.io/badge/tests-210%20passing-2ea44f" alt="210 tests">
+  <img src="https://img.shields.io/badge/tests-215%20passing-2ea44f" alt="215 tests">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
 </p>
 
@@ -60,7 +60,7 @@ what holds up and what does not.
   <tr>
     <td align="center"><h3>0.89 yd</h3>between a tracked player and the same player clicked by hand, on five plays</td>
     <td align="center"><h3>90%</h3>of 1,531 hand-labelled player positions found</td>
-    <td align="center"><h3>22 a play</h3>identity changes counted against the labels, target 2; none of them now a player followed onto the other team</td>
+    <td align="center"><h3>13 a play</h3>identity changes among the 86% of positions it names, target 2; a pile is shown as one area with nobody in it named</td>
   </tr>
 </table>
 
@@ -87,7 +87,7 @@ what holds up and what does not.
 <p align="center">
   <img src="docs/media/names.jpg" width="880" alt="Players named from their jersey numbers on the top-down view">
 </p>
-<p align="center"><sub>Panthers 2nd and 15. The names come from a jersey-number reader trained on this film, choosing among the 22 players the on-screen roster says are out there. A player named once is recognised on later plays by his look.</sub></p>
+<p align="center"><sub>Panthers 2nd and 15. The names come from a jersey-number reader trained on this film, choosing among the 22 players the on-screen roster says are out there. A player named once is recognised on later plays by his look. The shaded circle is a pile: players packed together are shown as one area and not named until they come out.</sub></p>
 
 Each run also writes one table for the game, a row per player per play. From one half of
 Panthers at Browns:
@@ -151,10 +151,12 @@ the number reader has seen almost only light jerseys.
   error in the mapping. One got past it: the field was mapped a tenth too narrow until the
   sidelines were measured directly. They now land within 0.4 yd; the hash marks and the
   sidelines are still each 0.2 to 0.35 yd off, because one camera has to fit both.
-- Teammates in a pile still trade identities. A player is no longer followed onto a man of
-  the other team (the line-up before the snap teaches a classifier the two kits), which took
-  the count on the five labelled plays from 28 a play to 22, against a target of 2. Part of
-  what is left is the labels, which trade players in a pile themselves.
+- Who is who inside a pile is not known, and no longer claimed: a pile is drawn as one area
+  with a head count, and players get their names back when they come out. A player is also
+  no longer followed onto a man of the other team (the line-up before the snap teaches a
+  classifier the two kits). On the five labelled plays that leaves 13 identity changes a
+  play among the 86% of positions named, against a target of 2 (it was 28 naming everyone).
+  Part of what is left is the labels, which trade players in a crowd themselves.
 - The end-zone camera angle is not mapped; the sideline read is replayed over it.
 - The throw cannot be timed without tracking the ball, so the throw grade is rough.
 - Broadcast film and other players are not supported: the play is read from NFL Pro's

@@ -24,7 +24,7 @@ import numpy as np
 from .anchor import Anchor, anchor_play, find_end_zone, find_huddle
 from .field import FIELD_WIDTH
 from .fieldnumbers import flatten, goal_line, read_numbers
-from .fieldtrack import FieldTracker, SnapDetector
+from .fieldtrack import FieldTracker, SnapDetector, find_piles
 from .jersey import ShotNumbers
 from .kits import KitReader, kit_feature
 from .looks import LookBook, ShotLooks
@@ -39,6 +39,8 @@ LIVE_FOR = 4.5                # seconds after the snap that "best throw availabl
 FORMATION_AT = 0.1            # roles are read from where players stood this long before the snap
 LOOK_EVERY = 8                # mapped frames between pre-snap reads of the formation
 NUMBERS_EVERY = 15            # mapped frames between looks at who the jersey numbers say is who
+PILES_FROM = 0.5              # seconds after the snap before anything counts as a pile: the lines have met by then
+PILE_JOIN, PILE_LEAVE = 6, 6  # frames in a row in a pile before a player is counted in it, and clear of one before he is out
 UNSEEN = 0.3                  # a slot with no box for this long at the line-up may be a second slot on a man who has one
 KIT_LESSON = 2.5              # seconds of line-up before the snap that teach the kit reader the two teams
 OFFENSE_ROLES = ("QB", "REC", "OL")
@@ -372,6 +374,7 @@ class PlayAnalyzer(AnalysisView):
         self._numbers = ShotNumbers(self.number_reader) if self.number_reader is not None else None
         self._kits = KitReader()             # which team a box shows, taught at the snap by where everyone lined up
         self._kit_seen: list[tuple[float, int, np.ndarray]] = []     # (time, slot, what his box showed) before the snap
+        self._pile: dict[int, list] = {}     # slot id -> [frames in a row in a pile, frames in a row clear, counted in one]
         self._kit_time = [0.0, 0.0]          # player-seconds a clear kit was read on a named player's box; of those, the wrong one
         self._kit_t: float | None = None
         self._looks = ShotLooks(self.look_embedder) if self.look_embedder is not None else None
@@ -601,6 +604,28 @@ class PlayAnalyzer(AnalysisView):
             if len(passers) == 1 and "QB" in self.roles.values():          # one quarterback listed and one found: that is him
                 named.add(("offense", passers[0].number))
         return named
+
+    def _mark_piles(self, out, t: float) -> None:
+        """Players in a pile are marked as such: the pile is shown as one area and nobody in it
+        is said to be this man or that one until he is clear of it again. The tracker's own
+        best guess goes on underneath, so the rush and the value are worked out as before."""
+        if self.snap_t is None or t - self.snap_t < PILES_FROM:
+            return
+        slot = {s.id: s for s in self.tracker.slots}
+        who = [(p, sid) for p, sid in zip(out.players, out.slot_ids)] + [(p, -1 - p.track_id) for p in out.unseen]
+        who = [(p, sid) for p, sid in who if p.role not in (None, "OFF") and sid in slot]
+        if not who:
+            return
+        crowded = find_piles(np.array([p.field_yd for p, _ in who]), np.array([slot[sid].speed for _, sid in who]),
+                             [0 if p.role in OFFENSE_ROLES else 1 for p, _ in who])
+        for (p, sid), inside in zip(who, crowded):
+            state = self._pile.setdefault(sid, [0, 0, False])
+            state[0], state[1] = (state[0] + 1, 0) if inside else (0, state[1] + 1)
+            if state[0] >= PILE_JOIN:
+                state[2] = True
+            elif state[1] >= PILE_LEAVE:
+                state[2] = False
+            p.pile = state[2] and p.role != "QB"             # there is one quarterback: he is himself wherever he is
 
     def _eleven_a_side(self, out) -> None:
         """After the snap a man nobody has named is a player only while his side is short of
@@ -889,6 +914,7 @@ class PlayAnalyzer(AnalysisView):
                     ))
             if self.roles:
                 self._eleven_a_side(out)
+                self._mark_piles(out, result.t)
         passing = self._passing
         if self.snap_t is not None and self.anchor is not None and self.roles:
             since = result.t - self.snap_t
@@ -963,7 +989,8 @@ class AnalyzedTracker:
                 xy = a.anchor.to_absolute(xy)
             players = [TrackedPlayer(res.players[i].track_id, res.players[i].team, res.players[i].box, res.players[i].conf,
                                      res.players[i].foot_px, (float(xy[k, 0]), float(xy[k, 1])),
-                                     a.roles.get(slot_ids[k]), a.labels.get(slot_ids[k]), slot_ids[k]) for k, i in enumerate(which)]
+                                     a.roles.get(slot_ids[k]), a.labels.get(slot_ids[k]), slot_ids[k], res.players[i].pile)
+                       for k, i in enumerate(which)]
             out.append(FrameResult(res.frame, res.t, res.size, players, res.shot, True))
         return out
 

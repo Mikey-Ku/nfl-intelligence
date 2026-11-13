@@ -141,7 +141,7 @@ All through `uv run nfl <command>`; `--help` on any of them lists the flags.
 | Check | `plays-check LOGS...` | mark play logs against the play-by-play and the official charting |
 | | `roles-check --weeks 1-3` | mark role assignment against real Big Data Bowl snaps |
 | | `truth VIDEO CSV --shot N` | click where each player stands, every half second: hand-labelled truth for a play |
-| | `eval PRED TRUTH` | score a tracking CSV against that truth: yards error, recall, ID switches, MOTA |
+| | `eval PRED TRUTH` | score a tracking CSV against that truth: yards error, recall, ID switches among the players it names, MOTA |
 | Train | `prelabel CLIPS...` / `boxes` / `train` | keyframes with the detector's boxes, a window to correct them, then a two-stage YOLO fine-tune |
 | | `value-train` / `value-baseline` | the pass value models and their typical-play curves |
 | | `coverage-train` | man/zone and coverage shell from defender movement |
@@ -186,6 +186,11 @@ to move.
   from where, `value` the curve and `peak` its high point. A play with `"matched": false` or
   no `snap` is one the pipeline gave up on, on purpose: it says what is missing rather than
   guessing.
+- **Piles**: after the snap, four or more players from both teams packed within two yards
+  of each other are drawn as one area, white outline on the film and a shaded circle with a
+  head count on the top-down view, with nobody inside it named. A player gets his box and
+  name back a quarter of a second after he is clear. In the CSV those rows have `pile` set;
+  `slot` still carries the tracker's own guess.
 - **`kits` in the play log**: `read_s` is how many player-seconds a named player's box
   showed a clear kit after the snap, `other_side_s` how many of those showed the other
   team's. That second number is identities sitting on the wrong man, measured with no labels:
@@ -200,7 +205,7 @@ to move.
     his box, a labeller clicks a little higher); ID switches count changes of `slot`.
   - `uv run nfl value-train` retrains the value models and prints the held-out AUC and
     calibration.
-- **The code**: `uv run pytest` runs 210 tests on synthetic frames and tracks; no footage
+- **The code**: `uv run pytest` runs 215 tests on synthetic frames and tracks; no footage
   is needed or used.
 
 ### Hand-labelling a play
