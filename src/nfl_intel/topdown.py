@@ -11,8 +11,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .draw import team_color
+from .draw import PILE, PILE_SPAN, team_color
 from .field import FIELD_WIDTH, HASH_INSET
+from .fieldtrack import chains
 
 GRASS = (62, 118, 44)
 END_ZONE = (48, 92, 34)
@@ -89,9 +90,29 @@ def draw_topdown(view: FieldSlice, analysis, trails: dict[int, list] | None = No
                if p.field_yd is not None and -2 < p.field_yd[1] < FIELD_WIDTH + 2 and view.x0 - 1 < p.field_yd[0] < view.x1 + 1]
     ids = {id(p): sid for p, sid in zip(analysis.players, analysis.slot_ids)}
     k = view.height / 720.0                     # everything is sized for a 720-line picture
+    piled = [p for p in players if p.pile]
+    if piled:                                   # a pile is one area: where it is, how many are in it, and no more than that
+        where = np.array([p.field_yd for p in piled])
+        group = chains(where, PILE_SPAN)
+        shade = img.copy()
+        rings = []
+        for g in np.unique(group):
+            pts = where[group == g]
+            if len(pts) < 2:                    # one man still counted in a pile that has moved off him: a mark, no area
+                continue
+            centre = pts.mean(axis=0)
+            radius = int(round((float(np.linalg.norm(pts - centre, axis=1).max()) + 1.1) * view.scale))
+            rings.append((view.P(centre), radius, int((group == g).sum())))
+            cv2.circle(shade, view.P(centre), radius, PILE, -1, cv2.LINE_AA)
+        img = cv2.addWeighted(shade, 0.22, img, 0.78, 0.0)
+        for c, radius, n in rings:
+            cv2.circle(img, c, radius, PILE, 1, cv2.LINE_AA)
+            _text(img, f"pile, {n}", (c[0] - int(22 * k), c[1] - radius - int(6 * k)), 0.42 * k, (225, 235, 245))
     if trails is not None:
         seen = set()
         for p in players:
+            if p.pile:
+                continue
             sid = ids.get(id(p), p.track_id)
             seen.add(sid)
             hist = trails.setdefault(sid, [])
@@ -113,6 +134,9 @@ def draw_topdown(view: FieldSlice, analysis, trails: dict[int, list] | None = No
             continue
         c = view.P(p.field_yd)
         color = team_color(side_of(p, anchor.offense_team, anchor.los_abs))
+        if p.pile:                              # somewhere in there: a small mark in his side's colour, and no name
+            cv2.circle(img, c, int(round(3 * k)), color, -1 if id(p) not in unseen else 1, cv2.LINE_AA)
+            continue
         r = int(round((5 if p.role in ("OL", "DL") else 7) * k))
         cv2.circle(img, c, r + 2, (20, 40, 20), -1, cv2.LINE_AA)
         if id(p) in unseen:                     # lost by the detector: a ring where he should be by now

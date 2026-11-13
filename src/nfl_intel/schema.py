@@ -19,6 +19,7 @@ CSV_FIELDS = [
     "role", "label",
     "anchored",
     "slot",
+    "pile",
 ]
 
 
@@ -34,6 +35,7 @@ class TrackedPlayer:
     label: str | None = None               # jersey number or name when known
     slot: int | None = None                # who he is through the play: the field tracker's number, which outlives
                                            # the image tracker's `track_id` when that one is lost and found again
+    pile: bool = False                     # in a pile: he is somewhere in it, and which of its men he is isn't claimed
 
 
 @dataclass
@@ -72,6 +74,7 @@ def write_csv(path: str | Path, results: Iterable[FrameResult]) -> int:
                     p.role or "", p.label or "",
                     int(res.anchored),
                     "" if p.slot is None else p.slot,
+                    1 if p.pile else "",
                 ])
                 n += 1
     return n
@@ -100,5 +103,6 @@ def read_csv(path: str | Path) -> list[FrameResult]:
                 role=row.get("role") or None,
                 label=row.get("label") or None,
                 slot=int(row["slot"]) if row.get("slot") not in (None, "") else None,
+                pile=row.get("pile") not in (None, "", "0"),
             ))
     return [frames[k] for k in sorted(frames)]

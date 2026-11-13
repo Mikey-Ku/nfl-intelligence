@@ -12,6 +12,47 @@ TEAM_COLORS = {0: (0, 200, 255), 1: (255, 120, 60), None: (200, 200, 200)}  # BG
 LINE_COLORS = {"scrimmage": (255, 200, 80), "to gain": (60, 220, 255)}       # as on television: blue and yellow
 
 
+PILE = (235, 235, 235)        # the colour a pile is outlined and shaded in
+PILE_SPAN = 2.5               # yards: piled players this close to the next are drawn as one pile
+
+
+def pile_groups(players) -> list[list]:
+    """The players marked as in a pile, gathered into the piles they make."""
+    from .fieldtrack import chains
+
+    piled = [p for p in players if p.pile and p.field_yd is not None]
+    if not piled:
+        return []
+    group = chains(np.array([p.field_yd for p in piled]), PILE_SPAN)
+    groups = [[p for p, g in zip(piled, group) if g == k] for k in np.unique(group)]
+    return [g for g in groups if len(g) >= 2]
+
+
+def pile_outlines(players, pad: float = 4.0) -> list[tuple[tuple[float, float, float, float], list]]:
+    """One rectangle in the picture round each pile, with the players in it. Piles whose
+    rectangles run into each other are drawn as one."""
+    found = []
+    for pile in pile_groups(players):
+        with_box = [p for p in pile if p.box[2] > p.box[0]]
+        if with_box:
+            b = np.array([p.box for p in with_box])
+            found.append([b[:, 0].min() - pad, b[:, 1].min() - pad, b[:, 2].max() + pad, b[:, 3].max() + pad, with_box])
+    merged = True
+    while merged:
+        merged = False
+        for i in range(len(found)):
+            for j in range(i + 1, len(found)):
+                a, b = found[i], found[j]
+                if a[0] <= b[2] and b[0] <= a[2] and a[1] <= b[3] and b[1] <= a[3]:
+                    found[i] = [min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]), a[4] + b[4]]
+                    del found[j]
+                    merged = True
+                    break
+            if merged:
+                break
+    return [((f[0], f[1], f[2], f[3]), f[4]) for f in found]
+
+
 def team_color(team: int | None) -> tuple[int, int, int]:
     return TEAM_COLORS.get(team, TEAM_COLORS[None])
 
@@ -36,8 +77,16 @@ def annotate(frame: np.ndarray, result: FrameResult, thickness: int = 2) -> np.n
         if len(pts) >= 2:
             cv2.polylines(out, [np.asarray(pts, dtype=np.int32).reshape(-1, 1, 2)], False, LINE_COLORS.get(name, (255, 255, 255)),
                           max(2, frame.shape[0] // 400), cv2.LINE_AA)
+    for rect, pile in pile_outlines(result.players):    # one outline round a pile, and nobody in it named
+        x1, y1, x2, y2 = (int(round(v)) for v in rect)
+        cv2.rectangle(out, (x1, y1), (x2, y2), PILE, thickness)
+        size = max(0.6, frame.shape[0] / 1500)
+        cv2.putText(out, "pile", (x1, max(12, y1 - 5)), cv2.FONT_HERSHEY_SIMPLEX, size, (20, 20, 20), 4, cv2.LINE_AA)
+        cv2.putText(out, "pile", (x1, max(12, y1 - 5)), cv2.FONT_HERSHEY_SIMPLEX, size, PILE, 2, cv2.LINE_AA)
+        for p in pile:
+            cv2.circle(out, (int(p.foot_px[0]), int(p.foot_px[1])), 4, team_color(p.team), -1)
     for p in list(result.players) + list(getattr(result, "loose", [])):
-        if p.role == "OFF":                             # officials and strays get no box: the boxes are the players
+        if p.role == "OFF" or p.pile:                   # officials and strays get no box: the boxes are the players
             continue
         x1, y1, x2, y2 = (int(round(v)) for v in p.box)
         color = team_color(p.team)

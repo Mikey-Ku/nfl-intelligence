@@ -11,7 +11,10 @@ assignment) within a threshold. From the matches we report:
   precision        matched / predicted players   (are we inventing people?)
   id_switches      times a true player's matched identity changed (the brief's "identity swaps").
                    The identity is the run's `slot` where it has one (the number the analysis
-                   keeps a player under), else the image tracker's id.
+                   keeps a player under), else the image tracker's id. A player the run marks
+                   as in a pile has a position and no identity: the run says he is in there and
+                   does not say which of them he is, so he can neither keep nor change one.
+  named            the share of matched positions the run put an identity on
   mota             1 - (misses + false positives + switches) / true players, the standard MOT summary
 
 Players are paired after the offset is taken out. Linemen stand a yard apart; with a yard of
@@ -44,6 +47,7 @@ class EvalResult:
     false_positives: int
     offset: tuple[float, float] = (0.0, 0.0)
     spread: float = float("nan")
+    named: float = 1.0
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -55,18 +59,18 @@ class EvalResult:
         return (
             f"{self.frames} frames  error {self.position_error:.2f} {self.unit}{steady}  "
             f"recall {self.recall:.2%}  precision {self.precision:.2%}  "
-            f"id switches {self.id_switches}  MOTA {self.mota:.3f}"
+            f"id switches {self.id_switches}{'' if self.named >= 0.9995 else f' among the {self.named:.0%} named'}  MOTA {self.mota:.3f}"
         )
 
 
-def _positions(res: FrameResult, use_field: bool, by_slot: bool = False) -> tuple[np.ndarray, list[int]]:
+def _positions(res: FrameResult, use_field: bool, by_slot: bool = False) -> tuple[np.ndarray, list[int | None]]:
     pts, ids = [], []
     for p in res.players:
         xy = p.field_yd if use_field else p.foot_px
         if xy is None:
             continue
         pts.append(xy)
-        ids.append(p.slot if by_slot and p.slot is not None else p.track_id)
+        ids.append(None if p.pile else p.slot if by_slot and p.slot is not None else p.track_id)
     return np.array(pts, dtype=float).reshape(-1, 2), ids
 
 
@@ -100,7 +104,7 @@ def evaluate(pred: list[FrameResult], truth: list[FrameResult], threshold: float
     first = [pr[j] - gt[i] for gt, _, pr, _, pairs in pair_up(offset) for i, j in pairs]
     if len(first) >= 20:                                    # too few pairs and the "steady" part is just noise
         offset = np.median(np.array(first), axis=0)
-    matched = misses = false_pos = switches = 0
+    matched = misses = false_pos = switches = named = 0
     errors: list[float] = []
     spread: list[float] = []
     last_match: dict[int, int] = {}          # true id -> last matched predicted id
@@ -111,6 +115,9 @@ def evaluate(pred: list[FrameResult], truth: list[FrameResult], threshold: float
             errors.append(float(np.linalg.norm(gt_pts[i] - pr_pts[j])))
             spread.append(float(np.linalg.norm(gt_pts[i] + offset - pr_pts[j])))
             gid, pid = gt_ids[i], pr_ids[j]
+            if pid is None:                              # in a pile: found, not named
+                continue
+            named += 1
             if gid in last_match and last_match[gid] != pid:
                 switches += 1
             last_match[gid] = pid
@@ -131,6 +138,7 @@ def evaluate(pred: list[FrameResult], truth: list[FrameResult], threshold: float
         false_positives=false_pos,
         offset=(float(offset[0]), float(offset[1])),
         spread=float(np.mean(spread)) if spread else float("nan"),
+        named=named / matched if matched else 1.0,
     )
 
 

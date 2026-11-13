@@ -72,7 +72,7 @@ Over all three, 58 of 66 plays were anchored from the painted numbers and the ot
 the direction the drive had already shown. Players found by the detector on 55 held-out
 frames: 80.5% stock, 91.1% fine-tuned.
 
-**Against positions labelled by hand** (`nfl truth`, then `nfl eval` on `outputs/v13`; five
+**Against positions labelled by hand** (`nfl truth`, then `nfl eval` on `outputs/v14`; five
 plays of 14 frames each, four from Panthers at Browns and one from the unseen night game):
 
 | | |
@@ -82,8 +82,8 @@ plays of 14 frames each, four from Panthers at Browns and one from the unseen ni
 | Where the mapping puts the far sideline's inner edge | within 0.1 yd on all three clips (0.7 to 3.0 yd inside before 2026-11-12) |
 | Labelled player positions found | 89.7% of 1,531 |
 | Placed players that were not players | 4 of 1,377 |
-| Identity changes a play, counted against the labels | 22 (16 to 40), from 28; the target is 2, and the labels trade players in a pile themselves |
-| Player-seconds a play that an identity sat on a man of the other team | 0.3 over all 66 plays (`kits` in the play logs); 12.7 before, on the five plays replayed |
+| Identity changes a play, counted against the labels | 13 (7 to 18) among the 86% of positions named, players in a pile being shown as one area and not named; 22 naming every box, 28 before; the target is 2, and the labels trade players in a crowd themselves |
+| Player-seconds a play that an identity sat on a man of the other team | 0.3 over all 66 plays (`kits` in the play logs); 17.3 with the old matching |
 
 Five plays are a small sample. Position held on every one, the unseen game included.
 Identity holds between the teams and not among teammates in a pile.

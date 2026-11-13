@@ -72,6 +72,41 @@ class Slot:
         return k if self.kit_votes[k] >= 0.75 * n else None
 
 
+def chains(xy: np.ndarray, link: float) -> np.ndarray:
+    """A group number for each point: two points are in one group when a chain of neighbours
+    no further than `link` apart joins them."""
+    xy = np.asarray(xy, dtype=np.float64).reshape(-1, 2)
+    n = len(xy)
+    near = np.linalg.norm(xy[:, None, :] - xy[None, :, :], axis=2) <= link
+    group = np.arange(n)
+    for _ in range(n):                                       # spread the lowest index through each chain
+        low = np.where(near, group[None, :], n).min(axis=1)
+        if (low == group).all():
+            break
+        group = low
+    return group
+
+
+def find_piles(xy: np.ndarray, speeds: np.ndarray, sides: list, link: float = 2.0, least: int = 4, slow: float = 4.0) -> np.ndarray:
+    """Which of these players are in a pile right now: four or more, from both teams, each
+    within `link` yards of the next, the group not going anywhere fast. Bodies are against
+    each other there and the boxes are few and shared, so where the pile is can be said and
+    who is where in it cannot. `sides` is 0 or 1 for each player's team. Receivers bunched at
+    the snap are one team, and a group running together is not slow: neither is a pile."""
+    xy = np.asarray(xy, dtype=np.float64).reshape(-1, 2)
+    n = len(xy)
+    out = np.zeros(n, dtype=bool)
+    if n < least:
+        return out
+    group = chains(xy, link)
+    for g in np.unique(group):
+        members = group == g
+        both = {sides[i] for i in np.flatnonzero(members)} >= {0, 1}
+        if members.sum() >= least and both and float(np.median(np.asarray(speeds)[members])) <= slow:
+            out |= members
+    return out
+
+
 class FieldTracker:
     def __init__(self, gate: float = 2.5, coast: float = 1.0, smooth: float = 0.45, velocity_window: float = 0.4,
                  team_penalty: float = 2.0, min_hits: int = 3, merge_within: float = 2.0, hidden_for: float = 3.0,

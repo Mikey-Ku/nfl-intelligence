@@ -17,7 +17,7 @@ from PySide6.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
 from .capture import Region, ScreenSource
-from .draw import LINE_COLORS, minimap, player_label, team_color
+from .draw import LINE_COLORS, minimap, pile_outlines, player_label, team_color
 from .field import draw_field
 from .panel import render_panel
 from .schema import FrameResult
@@ -110,8 +110,13 @@ class OverlayWindow(QWidget):
             painter.setPen(QPen(QColor(r, g, b, 200), 3))
             for (ax, ay), (bx, by) in zip(pts, pts[1:]):
                 painter.drawLine(int(ax * s), int(ay * s), int(bx * s), int(by * s))
+        for rect, _ in pile_outlines(self.result.players):  # one outline round a pile, nobody in it named
+            x1, y1, x2, y2 = (v * s for v in rect)
+            painter.setPen(QPen(QColor(235, 235, 235, 230), 2))
+            painter.drawRect(int(x1), int(y1), int(x2 - x1), int(y2 - y1))
+            painter.drawText(int(x1), int(y1) - 4, "pile")
         for p in self.result.players:
-            if p.role == "OFF":                # officials and strays get no box
+            if p.role == "OFF" or p.pile:      # officials and strays get no box
                 continue
             b, g, r = team_color(p.team)
             painter.setPen(QPen(QColor(r, g, b, 230), 2))
